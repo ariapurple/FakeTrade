@@ -139,11 +139,23 @@ def volume_spread(kline_data: dict[str, list[Any]]) -> dict[str, Any]:
     }
 
 
+def _optional_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if text in {"", "-", "N/A", "na", "None"}:
+        return None
+    try:
+        return float(text)
+    except ValueError:
+        return None
+
+
 def value_investing(calc: dict[str, Any] | None) -> dict[str, Any]:
     """Very coarse PE screen from Longbridge calc-index. Not a DCF."""
-    if not calc or calc.get("pe") in (None, ""):
+    pe = _optional_float((calc or {}).get("pe"))
+    if pe is None:
         return {"signal": "HOLD", "confidence": 0.3, "reason": "No PE from Longbridge calc-index.", "pe": None}
-    pe = float(calc["pe"])
     if pe <= 0:
         return {"signal": "HOLD", "confidence": 0.3, "reason": f"PE {pe} is not meaningful.", "pe": pe}
     if pe < 18:

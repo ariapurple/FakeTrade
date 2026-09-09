@@ -54,11 +54,28 @@ def fetch_klines(symbol: str, period: str = "day", count: int = 60) -> list[dict
 
 def to_quantharness(rows: list[dict[str, Any]]) -> dict[str, list[Any]]:
     """Map Longbridge rows to the Datetime/Open/High/Low/Close/Volume dict QuantHarness expects."""
+    cleaned: list[dict[str, Any]] = []
+    for row in rows:
+        try:
+            cleaned.append(
+                {
+                    "Datetime": row["time"],
+                    "Open": float(row["open"]),
+                    "High": float(row["high"]),
+                    "Low": float(row["low"]),
+                    "Close": float(row["close"]),
+                    "Volume": float(row.get("volume") or 0),
+                }
+            )
+        except (TypeError, ValueError, KeyError):
+            continue
+    if not cleaned:
+        raise RuntimeError("No numeric OHLCV rows after cleaning")
     return {
-        "Datetime": [row["time"] for row in rows],
-        "Open": [float(row["open"]) for row in rows],
-        "High": [float(row["high"]) for row in rows],
-        "Low": [float(row["low"]) for row in rows],
-        "Close": [float(row["close"]) for row in rows],
-        "Volume": [float(row.get("volume") or 0) for row in rows],
+        "Datetime": [row["Datetime"] for row in cleaned],
+        "Open": [row["Open"] for row in cleaned],
+        "High": [row["High"] for row in cleaned],
+        "Low": [row["Low"] for row in cleaned],
+        "Close": [row["Close"] for row in cleaned],
+        "Volume": [row["Volume"] for row in cleaned],
     }

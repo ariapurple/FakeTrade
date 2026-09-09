@@ -7,9 +7,8 @@
   "symbols": [
     "AAPL.US",
     "NVDA.US",
-    "TSLA.US",
-    "MSFT.US",
-    "AMD.US",
-    "SPY.US"
+    "DRAM.US",
+    "SKHY.US",
+    "VOO.US"
   ]
 }

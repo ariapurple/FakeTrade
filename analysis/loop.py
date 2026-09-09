@@ -25,11 +25,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     args = parser.parse_args(argv)
 
-    config = load_watchlist(args.watchlist)
-    payload = run_watchlist(config)
-    args.output.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    watchlist_path = args.watchlist.resolve()
+    output_path = args.output.resolve()
+    config = load_watchlist(watchlist_path)
+    symbols = config.get("symbols", [])
+    print(f"watchlist {watchlist_path}")
+    print(f"symbols   {', '.join(str(s) for s in symbols)}")
 
-    print(f"wrote {args.output}  {len(payload['results'])} symbols  {len(payload['actionable'])} actionable")
+    payload = run_watchlist(config)
+    payload["watchlist_path"] = str(watchlist_path)
+    output_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+
+    print(f"wrote {output_path}  {len(payload['results'])} symbols  {len(payload['actionable'])} actionable")
     for row in payload["results"]:
         print(f"  {row['ticker']:10} {row['final_decision']:4}  close={row['close']}  votes buy={row['buy_votes']} sell={row['sell_votes']}")
     for err in payload["errors"]:
