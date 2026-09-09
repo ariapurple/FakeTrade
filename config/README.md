@@ -33,6 +33,10 @@ Copy this shape. Change only `symbols` if you just want a different list.
   "budget_usd": "unlimited",
   "execution": "futu-sim",
   "news": false,
+  "buy": {
+    "add": "always_add",
+    "max_extension_pct": 0.08
+  },
   "sell": {
     "below_sma": 200,
     "drawdown_from_high": 0,
@@ -56,11 +60,13 @@ JSON must stay valid: double quotes, commas between items, **no comma after the 
 | `symbols` | Longbridge codes, e.g. `AAPL.US`, `00700.HK` | This is the trade list. Format is `TICKER.MARKET`. US names need `.US`. |
 | `strategy` | `"buy_hold"` | Stay long until a sell rule hits. Do not switch to `"swing"` / `"vote"` unless you mean to. |
 | `period` | `"day"` | Daily bars for SMA200. Hourly Automations docs mention `"1h"`; this live book uses `"day"`. |
-| `count` | `300` | How many daily bars to fetch. SMA200 needs about 200+ bars. Short listings (few bars) have no SMA and stay **BUY**. |
+| `count` | `300` | How many daily bars to fetch. SMA200 needs about 200+ bars. Short listings (few bars) have no SMA: **always_add** stays BUY, **dip_add** stays HOLD. |
 | `qty` | `1` | Shares **per BUY ticket**, not a max position. Later BUY ticks can add another 1 share. |
 | `budget_usd` | `"unlimited"` | No virtual $2000 purse. Futu 模拟盘 cash is the limit. |
 | `execution` | `"futu-sim"` | Required for OpenD 模拟盘. Other values do not place Futu sim orders. |
 | `news` | `false` | News is off for this book. |
+| `buy.add` | `"always_add"` or `"dip_add"` | Switch add style. **always_add** = add 1 whenever price is still above SMA200. **dip_add** = add 1 only when also inside `max_extension_pct`. |
+| `buy.max_extension_pct` | `0.08` | Used only when `buy.add` is `"dip_add"`. Add while price is above SMA200 and no more than 8% above it. Stretched names print HOLD. Keep this number even on always_add so you can switch back without losing the band. |
 | `sell.below_sma` | `200` | **SELL** when live price is below SMA200. `0` means never sell on SMA. |
 | `sell.drawdown_from_high` | `0` | Extra crash exit. `0` = off. Example: `0.4` would sell ~40% off the lookback high. |
 | `sell.high_lookback` | `0` | Days used for that drawdown high. Unused while drawdown is `0`. |
@@ -70,13 +76,18 @@ JSON must stay valid: double quotes, commas between items, **no comma after the 
 
 ## How signals become orders
 
-While price is still inside the sell rules, every run writes **BUY**. That means “stay long / add 1”, not “buy the whole cash pile”.
+Signals are **BUY** (add 1), **HOLD** (keep what you own), or **SELL** (exit the whole long).
 
+- **always_add**: **BUY** while live price is above SMA200. Stretched names still add.
+- **dip_add**: **BUY** only when above SMA200 and within `buy.max_extension_pct`. **HOLD** when stretched.
 - Each BUY ticket is **1 share** (market, US regular hours).
-- If you already hold 1 share and the next tick is still BUY, it can **add 1 more**.
+- If you already hold shares and the next tick is still BUY, it can **add 1 more**.
 - A working limit that never fills is cancelled for that ticker, then replaced.
 - **SELL** (price below SMA200) exits the **whole** long in that name.
+- Names without enough bars for SMA200: **always_add** stays BUY; **dip_add** stays HOLD.
 - If Futu cash cannot cover 1 share and 融資 is off, the order should **fail** and cash stays. This job does not size a fractional share.
+
+To switch later, change only `"add"` in `config/watchlist.json` to `"dip_add"` and wait for the next `:00` / `:30` tick.
 
 Check results in `trading_signal_hold.json` (BUY/SELL/HOLD) and `analysis/output/execution_log_hold.json` (submitted / skipped / failed).
 

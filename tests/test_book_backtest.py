@@ -40,6 +40,25 @@ class BookSignalTests(unittest.TestCase):
         self.assertEqual(flags[-1], "SELL")
         self.assertEqual(plan["signal"], "SELL")
 
+    def test_stretched_matches_agent_hold(self) -> None:
+        frame = _frame([100.0] * 79 + [109.0])
+        flags = buy_hold_exit_signals(
+            frame,
+            below_sma=60,
+            drawdown_from_high=0.0,
+            high_lookback=0,
+            max_extension_pct=0.08,
+        )
+        plan = buy_hold_exits(
+            _qh(frame),
+            below_sma=60,
+            drawdown_from_high=0.0,
+            high_lookback=0,
+            max_extension_pct=0.08,
+        )
+        self.assertEqual(flags[-1], "HOLD")
+        self.assertEqual(plan["signal"], "HOLD")
+
     def test_never_sell_signals_are_all_buy(self) -> None:
         frame = _frame([100.0] * 70 + [40.0] * 10)
         flags = buy_hold_exit_signals(frame, below_sma=0, drawdown_from_high=0.0)

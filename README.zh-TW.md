@@ -2,7 +2,7 @@
 
 [English](README.md) | 繁體中文
 
-本專案可在 Windows 電腦跑 **富途模擬盤**：用 Longbridge 取價、buy-and-hold SMA200 規則、每次 BUY 1 股。**絕不會**下真實（`REAL`）單。
+本專案可在 Windows 電腦跑 **富途模擬盤**：用 Longbridge 取價、buy-and-hold SMA200（`buy.add` 可切 always-add / dip-add）、每次 BUY 1 股。**絕不會**下真實（`REAL`）單。
 
 若有人把這個資料夾分享給你，**不必**自己打 Python 指令。用 `quant.cmd` 即可。
 

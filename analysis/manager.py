@@ -24,6 +24,7 @@ from analysis.quote import fetch_quotes, parse_live_price
 
 HK_TZ = timezone(timedelta(hours=8))
 StrategyName = Literal["vote", "buy_hold", "swing"]
+AddStyle = Literal["always_add", "dip_add"]
 
 
 def now_hk_iso() -> str:
@@ -78,6 +79,41 @@ def _sell_cfg(config: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def add_style_from_raw(raw: str) -> AddStyle:
+    key = str(raw).strip().lower().replace("-", "_").replace(" ", "_")
+    if key in {"always_add", "always", "always_add_1", "add_1"}:
+        return "always_add"
+    if key in {"dip_add", "dip", "dip_add_1", "dip_in_expansion"}:
+        return "dip_add"
+    raise ValueError(f"Unknown buy.add {raw!r}; use always_add or dip_add.")
+
+
+def live_extension_pct(buy: dict[str, Any]) -> float:
+    """Band used for live BUY/HOLD. always_add ignores max_extension_pct."""
+    style: AddStyle = buy["add"]
+    if style == "always_add":
+        return 0.0
+    if style == "dip_add":
+        return float(buy["max_extension_pct"])
+    assert_never(style)
+
+
+def _buy_cfg(config: dict[str, Any]) -> dict[str, Any]:
+    """Missing ``buy`` means always-add. Dip band is kept so the switch is one field."""
+    block = config.get("buy") if isinstance(config.get("buy"), dict) else None
+    if not block:
+        return {"add": "always_add", "max_extension_pct": 0.0}
+    pct = float(block.get("max_extension_pct") or 0)
+    raw_add = block.get("add")
+    if raw_add is None or str(raw_add).strip() == "":
+        style: AddStyle = "dip_add" if pct > 0 else "always_add"
+    else:
+        style = add_style_from_raw(str(raw_add))
+    if style == "dip_add" and pct <= 0:
+        pct = 0.08
+    return {"add": style, "max_extension_pct": pct}
+
+
 def _exits_enabled(sell: dict[str, Any]) -> bool:
     return bool(
         sell.get("below_sma")
@@ -115,7 +151,9 @@ def run_symbol(
     qty = max(1, int(cfg.get("qty") or 1))
     if strategy == "buy_hold":
         sell = _sell_cfg(cfg)
-        if _exits_enabled(sell):
+        buy = _buy_cfg(cfg)
+        extension = live_extension_pct(buy)
+        if _exits_enabled(sell) or extension > 0:
             plan = buy_hold_exits(
                 kline_data,
                 below_sma=int(sell["below_sma"]),
@@ -123,13 +161,12 @@ def run_symbol(
                 high_lookback=int(sell["high_lookback"]),
                 news_report=news_report,
                 last_price=live_px,
+                max_extension_pct=extension,
             )
         else:
             plan = buy_and_hold()
         reports = {"buy_hold": plan, "news": news_report}
         decision: Signal = plan["signal"]
-        if decision == "HOLD":
-            decision = "BUY"
         buy_votes = 1 if decision == "BUY" else 0
         sell_votes = 1 if decision == "SELL" else 0
     elif strategy == "swing":
@@ -223,6 +260,7 @@ def run_watchlist(config: dict[str, Any]) -> dict[str, Any]:
             "execution": str(config.get("execution", "paper")),
             "news": _news_enabled(config, strategy),
             "sell": _sell_cfg(config) if strategy == "buy_hold" else None,
+            "buy": _buy_cfg(config) if strategy == "buy_hold" else None,
         },
         "results": results,
         "errors": errors,

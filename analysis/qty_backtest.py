@@ -11,9 +11,10 @@ from typing import Any
 import pandas as pd
 
 from analysis.backtest import rows_to_frame
-from analysis.book_backtest import _sample_points
+from analysis.book_backtest import _sample_points, buy_hold_exit_signals
 from analysis.exit_sweep import hold_plus_exit_signals, run_rule
 from analysis.kline import fetch_klines
+from analysis.manager import _buy_cfg, _sell_cfg
 
 ROOT = Path(__file__).resolve().parents[1]
 SMA200_RULE = {
@@ -92,6 +93,41 @@ def tapes_live_qty(
             "close": closes,
             "signal": sigs,
             "cheap": cheap_days,
+        }
+    return tapes
+
+
+def tapes_buy_hold(
+    frames: dict[str, pd.DataFrame],
+    *,
+    below_sma: int,
+    drawdown_from_high: float,
+    high_lookback: int,
+    max_extension_pct: float,
+) -> dict[str, dict[str, Any]]:
+    """Daily tapes using the live buy_hold SELL / HOLD / BUY rules."""
+    tapes: dict[str, dict[str, Any]] = {}
+    for symbol, frame in frames.items():
+        signals = buy_hold_exit_signals(
+            frame,
+            below_sma=int(below_sma),
+            drawdown_from_high=float(drawdown_from_high),
+            high_lookback=int(high_lookback),
+            max_extension_pct=float(max_extension_pct),
+        )
+        opens: dict[str, float] = {}
+        closes: dict[str, float] = {}
+        sigs: dict[str, str] = {}
+        for idx in range(len(frame)):
+            key = _day_key(frame["time"].iloc[idx])
+            opens[key] = float(frame["open"].iloc[idx])
+            closes[key] = float(frame["close"].iloc[idx])
+            sigs[key] = signals[idx]
+        tapes[symbol] = {
+            "open": opens,
+            "close": closes,
+            "signal": sigs,
+            "cheap": {key: False for key in closes},
         }
     return tapes
 
@@ -263,14 +299,32 @@ def run_add_compare(
     """Current add-1-on-BUY vs last hold-1-until-SELL, same daily tape."""
     cfg = json.loads((ROOT / "config" / "watchlist.json").read_text(encoding="utf-8"))
     symbols = [str(name) for name in cfg["symbols"]]
+    sell = _sell_cfg(cfg)
+    buy = _buy_cfg(cfg)
     frames, errors = load_watchlist_frames(symbols, count=count, adjust=adjust)
     tapes = tapes_live_qty(frames, lookback=1000, min_bars=252, percentile=0.2)
     ten_frames = {sym: frame for sym, frame in frames.items() if len(frame) >= 220}
     ten_tapes = tapes_live_qty(ten_frames, lookback=1000, min_bars=252, percentile=0.2)
+    dip_tapes = tapes_buy_hold(
+        frames,
+        below_sma=int(sell["below_sma"]),
+        drawdown_from_high=float(sell["drawdown_from_high"]),
+        high_lookback=int(sell["high_lookback"]),
+        max_extension_pct=float(buy["max_extension_pct"]),
+    )
+    dip_ten_tapes = tapes_buy_hold(
+        ten_frames,
+        below_sma=int(sell["below_sma"]),
+        drawdown_from_high=float(sell["drawdown_from_high"]),
+        high_lookback=int(sell["high_lookback"]),
+        max_extension_pct=float(buy["max_extension_pct"]),
+    )
     last_all = simulate_qty_book(tapes, capital, qty=1, qty_cheap=1, scale_in=False)
     add_all = simulate_qty_book(tapes, capital, qty=1, qty_cheap=1, scale_in=True)
     last_ten = simulate_qty_book(ten_tapes, capital, qty=1, qty_cheap=1, scale_in=False)
     add_ten = simulate_qty_book(ten_tapes, capital, qty=1, qty_cheap=1, scale_in=True)
+    dip_all = simulate_qty_book(dip_tapes, capital, qty=1, qty_cheap=1, scale_in=True)
+    dip_ten = simulate_qty_book(dip_ten_tapes, capital, qty=1, qty_cheap=1, scale_in=True)
     start, end = _tape_span(ten_frames or frames)
     per_symbol = []
     for symbol in list(ten_tapes) or list(tapes):
@@ -291,6 +345,12 @@ def run_add_compare(
                 "add_max_held": add_ten["max_held"].get(symbol, 0)
                 if symbol in add_ten["max_held"]
                 else add_all["max_held"].get(symbol, 0),
+                "dip_shares_bought": dip_ten["shares_bought_by"].get(symbol, 0)
+                if symbol in dip_ten["shares_bought_by"]
+                else dip_all["shares_bought_by"].get(symbol, 0),
+                "dip_max_held": dip_ten["max_held"].get(symbol, 0)
+                if symbol in dip_ten["max_held"]
+                else dip_all["max_held"].get(symbol, 0),
             }
         )
     return {
@@ -300,22 +360,26 @@ def run_add_compare(
         "qty": 1,
         "start": start,
         "end": end,
+        "max_extension_pct": float(buy["max_extension_pct"]),
         "symbols": list(frames),
         "ten_symbols": list(ten_frames),
         "skipped": errors,
         "last_published_ten_qty_1": LAST_TEN_QTY1,
         "this_run_ten_hold_1": _without_equity(last_ten),
         "this_run_ten_add_1": _without_equity(add_ten),
+        "this_run_ten_dip_add_1": _without_equity(dip_ten),
         "this_run_all_hold_1": _without_equity(last_all),
         "this_run_all_add_1": _without_equity(add_all),
+        "this_run_all_dip_add_1": _without_equity(dip_all),
         "ten_hold_1_equity": last_ten["equity"],
         "ten_add_1_equity": add_ten["equity"],
+        "ten_dip_add_1_equity": dip_ten["equity"],
         "per_symbol": per_symbol,
         "notes": [
-            "Hold-1 = last live rule: BUY until 1 share, skip until SMA200 SELL.",
-            "Add-1 = current live rule: each BUY day queues 1 more share at next open.",
-            "Daily bars only. Live RTH ticks every 30 minutes would add faster.",
-            "SMA200 not ready yet still prints BUY (same as SKHY/DRAM with no SMA).",
+            "Hold-1 = BUY until 1 share, skip until SMA200 SELL.",
+            "Add-1 = each BUY day queues 1 more share at next open (old live rule).",
+            "Dip-add-1 = 8% add band (buy.max_extension_pct), even if live buy.add is always_add.",
+            "Daily bars only. Live RTH ticks every 30 minutes would add faster on BUY days.",
         ],
     }
 
@@ -491,11 +555,14 @@ def main(argv: list[str] | None = None) -> int:
         prior = payload["last_published_ten_qty_1"]
         hold = payload["this_run_ten_hold_1"]
         add = payload["this_run_ten_add_1"]
+        dip = payload["this_run_ten_dip_add_1"]
         hold_all = payload["this_run_all_hold_1"]
         add_all = payload["this_run_all_add_1"]
+        dip_all = payload["this_run_all_dip_add_1"]
         print(
             f"window {payload.get('start')} → {payload.get('end')}  "
-            f"ten={len(payload.get('ten_symbols') or [])}  all={len(payload.get('symbols') or [])}"
+            f"ten={len(payload.get('ten_symbols') or [])}  all={len(payload.get('symbols') or [])}  "
+            f"max_extension={payload.get('max_extension_pct')}"
         )
         print(
             f"last published 10 names qty 1   pnl ${prior['pnl']}  buys={prior['buys']}"
@@ -509,12 +576,20 @@ def main(argv: list[str] | None = None) -> int:
             f"shares={add['shares_bought']}  top_ups={add['top_ups']}"
         )
         print(
+            f"this tape 10 names dip-add-1    pnl ${dip['pnl']}  buys={dip['buys']}  "
+            f"shares={dip['shares_bought']}  top_ups={dip['top_ups']}"
+        )
+        print(
             f"this tape all names hold-1      pnl ${hold_all['pnl']}  buys={hold_all['buys']}  "
             f"shares={hold_all['shares_bought']}"
         )
         print(
             f"this tape all names add-1       pnl ${add_all['pnl']}  buys={add_all['buys']}  "
             f"shares={add_all['shares_bought']}  top_ups={add_all['top_ups']}"
+        )
+        print(
+            f"this tape all names dip-add-1   pnl ${dip_all['pnl']}  buys={dip_all['buys']}  "
+            f"shares={dip_all['shares_bought']}  top_ups={dip_all['top_ups']}"
         )
         print(f"wrote {out}")
         return 0

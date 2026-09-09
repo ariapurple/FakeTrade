@@ -2,7 +2,7 @@
 
 [English](README.md) | [繁體中文](README.zh-TW.md)
 
-This repo can run a **Futu 模拟盘** book on a Windows PC: Longbridge for prices, a buy-and-hold SMA200 rule, 1 share per BUY. It **never** places a live (`REAL`) order.
+This repo can run a **Futu 模拟盘** book on a Windows PC: Longbridge for prices, a buy-and-hold SMA200 rule (`buy.add`: always-add or dip-add), 1 share per BUY. It **never** places a live (`REAL`) order.
 
 If someone shared this folder with you, you do **not** need to type Python commands. Use `quant.cmd`.
 

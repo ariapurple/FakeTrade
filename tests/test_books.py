@@ -73,6 +73,8 @@ class BooksTests(unittest.TestCase):
         sell = books[0]["config"]["sell"]
         self.assertEqual(sell["below_sma"], 200)
         self.assertEqual(sell["drawdown_from_high"], 0)
+        self.assertEqual(books[0]["config"]["buy"]["add"], "always_add")
+        self.assertEqual(books[0]["config"]["buy"]["max_extension_pct"], 0.08)
         self.assertFalse(overlap_errors(books))
         symbols = list(books[0]["config"]["symbols"])
         self.assertIn("AAPL.US", symbols)

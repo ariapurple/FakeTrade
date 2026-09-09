@@ -15,7 +15,7 @@ import pandas as pd
 from analysis.backtest import rows_to_frame
 from analysis.books import load_books
 from analysis.kline import fetch_klines
-from analysis.manager import _sell_cfg, strategy_from_config
+from analysis.manager import _buy_cfg, _sell_cfg, live_extension_pct, strategy_from_config
 from analysis.session import in_us_rth
 from analysis.theory_backtest import (
     CAPITAL,
@@ -38,33 +38,47 @@ def buy_hold_exit_signals(
     below_sma: int = 60,
     drawdown_from_high: float = 0.25,
     high_lookback: int = 60,
+    max_extension_pct: float = 0.0,
 ) -> list[Signal]:
-    """Match live manager: SELL on SMA/drawdown, otherwise BUY. No news.
+    """Match live manager: SELL on SMA/drawdown, HOLD when stretched, else BUY.
 
-    ``below_sma`` 0 and ``drawdown_from_high`` 0 means never-sell (always BUY).
+    ``below_sma`` 0 and ``drawdown_from_high`` 0 and ``max_extension_pct`` 0
+    means never-sell (always BUY).
     """
     close = frame["close"].astype(float)
-    if not below_sma and float(drawdown_from_high) <= 0:
+    sma_len = int(below_sma) if below_sma else 0
+    ext_len = sma_len or (200 if float(max_extension_pct) > 0 else 0)
+    if not sma_len and float(drawdown_from_high) <= 0 and float(max_extension_pct) <= 0:
         return ["BUY"] * len(frame)
-    sma = close.rolling(int(below_sma)).mean() if below_sma else None
+    sma = close.rolling(int(ext_len)).mean() if ext_len else None
     peak = close.rolling(int(high_lookback)).max() if high_lookback else None
     out: list[Signal] = []
+    band = float(max_extension_pct)
     for idx in range(len(frame)):
         if idx < WARMUP:
             out.append("HOLD")
             continue
         last = float(close.iloc[idx])
-        sell = False
-        if sma is not None and pd.notna(sma.iloc[idx]) and last < float(sma.iloc[idx]):
-            sell = True
+        sma_now = None if sma is None else sma.iloc[idx]
+        if sma_len and sma_now is not None and pd.notna(sma_now) and last < float(sma_now):
+            out.append("SELL")
+            continue
         if (
             peak is not None
             and drawdown_from_high > 0
             and pd.notna(peak.iloc[idx])
             and last <= float(peak.iloc[idx]) * (1.0 - float(drawdown_from_high))
         ):
-            sell = True
-        out.append("SELL" if sell else "BUY")
+            out.append("SELL")
+            continue
+        if band > 0:
+            if sma_now is None or pd.isna(sma_now) or float(sma_now) <= 0:
+                out.append("HOLD")
+                continue
+            if last > float(sma_now) * (1.0 + band):
+                out.append("HOLD")
+                continue
+        out.append("BUY")
     return out
 
 
@@ -212,6 +226,7 @@ def run_symbols(
     capital: float,
     signal_kind: str,
     sell: dict[str, Any] | None,
+    buy: dict[str, Any] | None,
     test_bars: int | None,
 ) -> dict[str, Any]:
     frames: dict[str, pd.DataFrame] = {}
@@ -231,11 +246,13 @@ def run_symbols(
     for symbol, frame in frames.items():
         if signal_kind == "buy_hold":
             cfg = sell or {}
+            buy_cfg = _buy_cfg({"buy": buy} if buy else {})
             signals = buy_hold_exit_signals(
                 frame,
                 below_sma=int(cfg.get("below_sma") or 0),
                 drawdown_from_high=float(cfg.get("drawdown_from_high") or 0),
                 high_lookback=int(cfg.get("high_lookback") or 0),
+                max_extension_pct=live_extension_pct(buy_cfg),
             )
         elif signal_kind == "swing":
             signals = swing_signals(frame)
@@ -277,6 +294,7 @@ def run_symbols(
 def run_all(capital: float = CAPITAL) -> dict[str, Any]:
     cfg = json.loads((ROOT / "config" / "watchlist.json").read_text(encoding="utf-8"))
     sell = _sell_cfg(cfg)
+    buy = _buy_cfg(cfg)
     kind = "swing" if strategy_from_config(cfg) == "swing" else "buy_hold"
     hold_capital = float(cfg.get("starting_usd") or cfg.get("budget_usd") or capital)
     prior = run_symbols(
@@ -286,6 +304,7 @@ def run_all(capital: float = CAPITAL) -> dict[str, Any]:
         capital=capital,
         signal_kind="buy_hold",
         sell=sell,
+        buy=None,
         test_bars=TEST_BARS,
     )
     hold_book = run_symbols(
@@ -295,6 +314,7 @@ def run_all(capital: float = CAPITAL) -> dict[str, Any]:
         capital=hold_capital,
         signal_kind=kind,
         sell=sell if kind == "buy_hold" else None,
+        buy=buy if kind == "buy_hold" else None,
         test_bars=TEST_BARS,
     )
     return {
@@ -307,6 +327,7 @@ def run_all(capital: float = CAPITAL) -> dict[str, Any]:
         "hold": {
             "strategy": strategy_from_config(cfg),
             "sell": sell if kind == "buy_hold" else None,
+            "buy": buy if kind == "buy_hold" else None,
             **hold_book,
         },
         "books_loaded": [book["id"] for book in load_books(ROOT)],

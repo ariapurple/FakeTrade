@@ -6,7 +6,7 @@ import unittest
 from unittest.mock import patch
 
 from analysis.agents import buy_hold_exits, ma_swing, multi_year_cheap
-from analysis.manager import run_watchlist, strategy_from_config
+from analysis.manager import add_style_from_raw, live_extension_pct, run_watchlist, strategy_from_config, _buy_cfg
 
 
 def _bars(closes: list[float]) -> list[dict[str, float | str]]:
@@ -33,6 +33,20 @@ class StrategyConfigTests(unittest.TestCase):
         self.assertEqual(strategy_from_config({"strategy": "swing"}), "swing")
         self.assertEqual(strategy_from_config({}), "vote")
         self.assertEqual(strategy_from_config({"strategy": "vote"}), "vote")
+
+    def test_buy_add_switch(self) -> None:
+        self.assertEqual(add_style_from_raw("always_add"), "always_add")
+        self.assertEqual(add_style_from_raw("dip-add"), "dip_add")
+        always = _buy_cfg({"buy": {"add": "always_add", "max_extension_pct": 0.08}})
+        dip = _buy_cfg({"buy": {"add": "dip_add", "max_extension_pct": 0.08}})
+        inferred = _buy_cfg({"buy": {"max_extension_pct": 0.08}})
+        self.assertEqual(always["add"], "always_add")
+        self.assertEqual(live_extension_pct(always), 0.0)
+        self.assertEqual(dip["add"], "dip_add")
+        self.assertEqual(live_extension_pct(dip), 0.08)
+        self.assertEqual(inferred["add"], "dip_add")
+        with self.assertRaises(ValueError):
+            add_style_from_raw("swing")
 
 
 class BuyHoldWatchlistTests(unittest.TestCase):
@@ -149,6 +163,48 @@ class BuyHoldWatchlistTests(unittest.TestCase):
         )
         self.assertEqual(stay["results"][0]["final_decision"], "BUY")
 
+    @patch("analysis.quote.us_quote_session", return_value="rth")
+    @patch("analysis.manager.fetch_quotes")
+    @patch("analysis.manager.news_gate", return_value={"signal": "HOLD", "reason": "off", "hits": []})
+    @patch("analysis.manager.fetch_klines")
+    @patch("analysis.manager.fetch_calc_index")
+    def test_dip_in_expansion_hold_is_not_remapped_to_buy(
+        self, calc_index, fetch_klines, _news, fetch_quotes, _session
+    ) -> None:
+        fetch_klines.return_value = _bars([100.0] * 220)
+        fetch_quotes.return_value = {"AAPL.US": {"symbol": "AAPL.US", "last": "110"}}
+        book = {
+            "symbols": ["AAPL.US"],
+            "strategy": "buy_hold",
+            "period": "day",
+            "count": 300,
+            "qty": 1,
+            "execution": "futu-sim",
+            "news": False,
+            "buy": {"max_extension_pct": 0.08},
+            "sell": {
+                "below_sma": 200,
+                "drawdown_from_high": 0,
+                "high_lookback": 0,
+                "news": False,
+            },
+        }
+        stretched = run_watchlist(book)
+        calc_index.assert_not_called()
+        self.assertEqual(stretched["results"][0]["final_decision"], "HOLD")
+        self.assertEqual(stretched["actionable"], [])
+        self.assertEqual(stretched["config"]["buy"]["max_extension_pct"], 0.08)
+        fetch_quotes.return_value = {"AAPL.US": {"symbol": "AAPL.US", "last": "105"}}
+        near = run_watchlist(book)
+        self.assertEqual(near["results"][0]["final_decision"], "BUY")
+
+        book["buy"] = {"add": "always_add", "max_extension_pct": 0.08}
+        fetch_quotes.return_value = {"AAPL.US": {"symbol": "AAPL.US", "last": "110"}}
+        always = run_watchlist(book)
+        self.assertEqual(always["results"][0]["final_decision"], "BUY")
+        self.assertEqual(always["config"]["buy"]["add"], "always_add")
+        self.assertEqual(live_extension_pct(always["config"]["buy"]), 0.0)
+
     @patch("analysis.manager.fetch_quotes", return_value={})
     @patch("analysis.manager.news_gate", return_value={"signal": "HOLD", "reason": "off", "hits": []})
     @patch("analysis.manager.fetch_klines")
@@ -209,6 +265,51 @@ class BuyHoldWatchlistTests(unittest.TestCase):
         plan = buy_hold_exits(kline, below_sma=60, last_price=50.0)
         self.assertEqual(plan["signal"], "SELL")
         self.assertEqual(plan["close"], 50.0)
+
+    def test_dip_in_expansion_holds_when_stretched(self) -> None:
+        kline = {
+            "Close": [100.0] * 80,
+            "Open": [100.0] * 80,
+            "High": [100.0] * 80,
+            "Low": [100.0] * 80,
+            "Volume": [1] * 80,
+        }
+        stretched = buy_hold_exits(
+            kline,
+            below_sma=60,
+            drawdown_from_high=0.0,
+            high_lookback=0,
+            last_price=109.0,
+            max_extension_pct=0.08,
+        )
+        near = buy_hold_exits(
+            kline,
+            below_sma=60,
+            drawdown_from_high=0.0,
+            high_lookback=0,
+            last_price=105.0,
+            max_extension_pct=0.08,
+        )
+        self.assertEqual(stretched["signal"], "HOLD")
+        self.assertEqual(near["signal"], "BUY")
+
+    def test_dip_in_expansion_still_sells_below_sma(self) -> None:
+        kline = {
+            "Close": [100.0] * 80,
+            "Open": [100.0] * 80,
+            "High": [100.0] * 80,
+            "Low": [100.0] * 80,
+            "Volume": [1] * 80,
+        }
+        plan = buy_hold_exits(
+            kline,
+            below_sma=60,
+            drawdown_from_high=0.0,
+            high_lookback=0,
+            last_price=90.0,
+            max_extension_pct=0.08,
+        )
+        self.assertEqual(plan["signal"], "SELL")
 
     def test_news_sell_overrides(self) -> None:
         kline = {"Close": [100.0] * 80, "Open": [100.0] * 80, "High": [100.0] * 80, "Low": [100.0] * 80, "Volume": [1] * 80}

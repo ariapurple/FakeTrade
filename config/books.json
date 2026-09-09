@@ -1,5 +1,5 @@
 {
-  "_comment": "Hourly job runs this grouped book. SMA200 exit. Always 1 share.",
+  "_comment": "Hourly job runs this grouped book. SMA200 exit. buy.add switches always_add / dip_add.",
   "books": [
     {"id": "hold", "file": "config/watchlist.json"}
   ]

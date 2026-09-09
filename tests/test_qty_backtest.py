@@ -96,6 +96,40 @@ class QtyBookTests(unittest.TestCase):
         self.assertEqual(add["max_held"]["ADD.US"], 3)
         self.assertGreater(add["pnl"], hold["pnl"])
 
+    def test_scale_in_skips_hold_days(self) -> None:
+        tapes = {
+            "DIP.US": {
+                "open": {
+                    "2026-01-01": 10.0,
+                    "2026-01-02": 10.0,
+                    "2026-01-03": 10.0,
+                    "2026-01-04": 12.0,
+                },
+                "close": {
+                    "2026-01-01": 10.0,
+                    "2026-01-02": 10.0,
+                    "2026-01-03": 10.0,
+                    "2026-01-04": 12.0,
+                },
+                "signal": {
+                    "2026-01-01": "BUY",
+                    "2026-01-02": "HOLD",
+                    "2026-01-03": "HOLD",
+                    "2026-01-04": "BUY",
+                },
+                "cheap": {
+                    "2026-01-01": False,
+                    "2026-01-02": False,
+                    "2026-01-03": False,
+                    "2026-01-04": False,
+                },
+            }
+        }
+        dip = simulate_qty_book(tapes, 1000.0, qty=1, qty_cheap=1, scale_in=True)
+        self.assertEqual(dip["shares_bought"], 1)
+        self.assertEqual(dip["top_ups"], 0)
+        self.assertEqual(dip["max_held"]["DIP.US"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()

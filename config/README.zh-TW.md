@@ -33,6 +33,10 @@
   "budget_usd": "unlimited",
   "execution": "futu-sim",
   "news": false,
+  "buy": {
+    "add": "always_add",
+    "max_extension_pct": 0.08
+  },
   "sell": {
     "below_sma": 200,
     "drawdown_from_high": 0,
@@ -56,11 +60,13 @@ JSON 必須合法：用雙引號、項目之間有逗號、**最後一個代號�
 | `symbols` | Longbridge 代號，例如 `AAPL.US`、`00700.HK` | 交易名單。格式是 `TICKER.MARKET`。美股要加 `.US`。 |
 | `strategy` | `"buy_hold"` | 一直持有直到賣出規則觸發。不要改成 `"swing"` / `"vote"`，除非你真的要換策略。 |
 | `period` | `"day"` | SMA200 用日 K。Automation 文件有提 `"1h"`；這個實盤帳本用 `"day"`。 |
-| `count` | `300` | 抓幾根日 K。SMA200 大約要 200 根以上。上市太短、K 線不夠的名字沒有 SMA，會一直 **BUY**。 |
+| `count` | `300` | 抓幾根日 K。SMA200 大約要 200 根以上。上市太短、沒有 SMA：**always_add** 維持 BUY，**dip_add** 維持 HOLD。 |
 | `qty` | `1` | **每一張 BUY 單**的股數，不是持倉上限。之後若仍是 BUY，可以再加 1 股。 |
 | `budget_usd` | `"unlimited"` | 沒有虛擬 $2000 錢包。上限是富途模擬盤現金。 |
 | `execution` | `"futu-sim"` | OpenD 模擬盤必填。其他值不會下富途模擬單。 |
 | `news` | `false` | 這個帳本關閉新聞閘門。 |
+| `buy.add` | `"always_add"` 或 `"dip_add"` | 加碼模式。**always_add** = 現價仍高於 SMA200 就加 1 股。**dip_add** = 還要落在 `max_extension_pct` 內才加。 |
+| `buy.max_extension_pct` | `0.08` | 只在 `buy.add` 為 `"dip_add"` 時使用。現價高於 SMA200 且不超過均線 8% 才加碼。always_add 時請仍留下這個數字，方便之後切回去。 |
 | `sell.below_sma` | `200` | 現價低於 SMA200 就 **SELL**。`0` 表示不用 SMA 賣出。 |
 | `sell.drawdown_from_high` | `0` | 額外大跌出場。`0` = 關閉。例如 `0.4` 約為相對高點跌 40%。 |
 | `sell.high_lookback` | `0` | 上述高點的回看天數。跌幅為 `0` 時用不到。 |
@@ -70,15 +76,20 @@ JSON 必須合法：用雙引號、項目之間有逗號、**最後一個代號�
 
 ## 訊號如何變成委託
 
-只要現價仍在賣出規則內，每次執行都會寫 **BUY**。意思是「繼續持有／加 1 股」，不是「把現金一次買完」。
+訊號是 **BUY**（加 1 股）、**HOLD**（持股不加）、或 **SELL**（清掉該代號全部多單）。
 
+- **always_add**：現價高於 SMA200 就 **BUY**。漲太遠仍會加碼。
+- **dip_add**：高於 SMA200 且在 `buy.max_extension_pct` 內才 **BUY**。漲太遠是 **HOLD**。
+- 沒有足夠 K 線算出 SMA200：**always_add** 維持 BUY；**dip_add** 維持 HOLD。
 - 每張 BUY 是 **1 股**（市價、美股正規時段）。
-- 若已持有 1 股、下一輪仍是 BUY，可以 **再加 1 股**。
+- 若已持有股份、下一輪仍是 BUY，可以 **再加 1 股**。
 - 一直掛著成交不了的限價單會先取消該代號，再重送。
 - **SELL**（現價低於 SMA200）會卖掉該代號的 **全部** 多單。
 - 若模擬盤現金不夠買 1 股且融資已關，委託應 **失敗**，現金留下。本工作不會改成碎股。
 
 結果看 `trading_signal_hold.json`（BUY/SELL/HOLD）以及 `analysis/output/execution_log_hold.json`（已送出／略過／失敗）。
+
+之後若要改成 dip-add，只需把 `config/watchlist.json` 裡的 `"add"` 改成 `"dip_add"`，等到下一個 `:00` / `:30`。
 
 ## 改代號名單
 

@@ -241,8 +241,9 @@ def buy_hold_exits(
     high_lookback: int = 60,
     news_report: dict[str, Any] | None = None,
     last_price: float | None = None,
+    max_extension_pct: float = 0.0,
 ) -> dict[str, Any]:
-    """Optional long-term exits: live/last price below SMA, deep drawdown, or hard-negative news."""
+    """SMA/drawdown/news exits, plus optional add-only-near-SMA (dip-in-expansion)."""
     frame = _frame(kline_data)
     close = frame["Close"].astype(float)
     last = float(last_price) if last_price is not None else _last(close)
@@ -253,18 +254,24 @@ def buy_hold_exits(
             "confidence": 0.3,
             "reason": "No close for buy-and-hold exit check.",
             "close": None,
+            "extension_pct": None,
         }
     news_signal = (news_report or {}).get("signal")
-    if not below_sma and drawdown_from_high <= 0 and news_signal != "SELL":
+    sma_len = int(below_sma) if below_sma else 0
+    ext_len = sma_len or (200 if float(max_extension_pct) > 0 else 0)
+    if not sma_len and drawdown_from_high <= 0 and news_signal != "SELL" and float(max_extension_pct) <= 0:
         return {
             **buy_and_hold(),
             "close": round(last, 2),
             "sma": None,
             "high": None,
+            "extension_pct": None,
         }
-    sma = _last(talib.SMA(close, timeperiod=int(below_sma))) if below_sma else None
-    if sma is not None and last < sma:
-        reasons.append(f"price {last:.2f} is below SMA{below_sma} {sma:.2f}")
+    sma = _last(talib.SMA(close, timeperiod=int(ext_len))) if ext_len else None
+    extension_pct = None if sma is None or float(sma) <= 0 else (last - float(sma)) / float(sma)
+    sma_label = sma_len or ext_len
+    if sma_len and sma is not None and last < sma:
+        reasons.append(f"price {last:.2f} is below SMA{sma_len} {sma:.2f}")
     window = close.iloc[-int(high_lookback) :] if high_lookback else close
     peak = float(window.max()) if not window.empty else None
     if last_price is not None and peak is not None:
@@ -282,13 +289,47 @@ def buy_hold_exits(
             "close": round(last, 2),
             "sma": None if sma is None else round(float(sma), 2),
             "high": None if peak is None else round(peak, 2),
+            "extension_pct": None if extension_pct is None else round(float(extension_pct), 4),
         }
+    if float(max_extension_pct) > 0:
+        band = float(max_extension_pct)
+        if sma is None or extension_pct is None:
+            return {
+                "signal": "HOLD",
+                "confidence": 0.4,
+                "reason": (
+                    f"Dip-in-expansion: not enough bars for SMA{sma_label}; "
+                    "will not add until the trend line exists."
+                ),
+                "close": round(last, 2),
+                "sma": None,
+                "high": None if peak is None else round(peak, 2),
+                "extension_pct": None,
+            }
+        if extension_pct > band:
+            return {
+                "signal": "HOLD",
+                "confidence": 0.65,
+                "reason": (
+                    f"Dip-in-expansion: price {last:.2f} is {extension_pct * 100:.1f}% above "
+                    f"SMA{sma_label} {sma:.2f}; stop adding (band {band * 100:.0f}%)."
+                ),
+                "close": round(last, 2),
+                "sma": round(float(sma), 2),
+                "high": None if peak is None else round(peak, 2),
+                "extension_pct": round(float(extension_pct), 4),
+            }
     return {
         "signal": "BUY",
         "confidence": 0.7,
         "reason": (
             f"Buy-and-hold: price {last:.2f} still inside the exit rules"
-            + (f" (SMA{below_sma} {sma:.2f})" if sma is not None else "")
+            + (f" (SMA{sma_label} {sma:.2f})" if sma is not None else "")
+            + (
+                f", {extension_pct * 100:.1f}% above SMA (add band {float(max_extension_pct) * 100:.0f}%)"
+                if extension_pct is not None and float(max_extension_pct) > 0
+                else ""
+            )
             + (
                 f", {int(drawdown_from_high * 100)}% off {high_lookback}d high"
                 if drawdown_from_high > 0 and high_lookback
@@ -299,6 +340,7 @@ def buy_hold_exits(
         "close": round(last, 2),
         "sma": None if sma is None else round(float(sma), 2),
         "high": None if peak is None else round(peak, 2),
+        "extension_pct": None if extension_pct is None else round(float(extension_pct), 4),
     }
 
 

@@ -75,7 +75,7 @@
         <mxCell id="lb" value="Longbridge CLI (on demand)&#xa;kline history + live quote&#xa;not a 24/7 agent process" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1">
           <mxGeometry x="650" y="532" width="240" height="66" as="geometry" />
         </mxCell>
-        <mxCell id="agent" value="buy_hold agent&#xa;BUY until live price &lt; SMA200&#xa;then SELL whole long" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1">
+        <mxCell id="agent" value="buy_hold agent&#xa;buy.add always_add or dip_add&#xa;SELL whole long below SMA200" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1">
           <mxGeometry x="920" y="532" width="220" height="66" as="geometry" />
         </mxCell>
         <mxCell id="sig-hold" value="trading_signal_hold.json&#xa;BUY / SELL / HOLD per ticker" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9673a6;" vertex="1" parent="1">
