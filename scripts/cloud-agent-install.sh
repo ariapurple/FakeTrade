@@ -18,3 +18,16 @@ if [ -d "${SKILLS_SRC}" ]; then
   cp -a "${SKILLS_SRC}/." "${HOME}/.cursor/skills/"
   cp -a "${SKILLS_SRC}/." "${HOME}/.agents/skills/"
 fi
+
+# QuantHarness Python env (TA-Lib manylinux wheel; no extra C compile on boot)
+VENV="${HOME}/.venvs/quantharness"
+REQ="/workspace/third_party/QuantHarness/requirements.txt"
+if [ -f "${REQ}" ]; then
+  if [ ! -x "${VENV}/bin/python" ]; then
+    python3 -m venv "${VENV}"
+  fi
+  if ! "${VENV}/bin/python" -c "import talib, langgraph" >/dev/null 2>&1; then
+    "${VENV}/bin/pip" install -U pip wheel
+    "${VENV}/bin/pip" install -r "${REQ}"
+  fi
+fi

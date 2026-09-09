@@ -1,0 +1,8 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+analysis/output/
+*.png
+data/
+third_party/QuantHarness/data/

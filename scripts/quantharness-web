@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# QuantHarness Flask UI (Yahoo Finance data + optional LLM key in the settings panel).
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+export LD_LIBRARY_PATH="${HOME}/.local/lib:${LD_LIBRARY_PATH:-}"
+PY="${ROOT}/.venv/bin/python"
+if [ ! -x "${PY}" ]; then
+  PY="${HOME}/.venvs/quantharness/bin/python"
+fi
+PORT="${PORT:-43141}"
+cd "${ROOT}/third_party/QuantHarness"
+exec "${PY}" -c "from web_interface import app; app.run(host='0.0.0.0', port=int('${PORT}'), debug=False)"
