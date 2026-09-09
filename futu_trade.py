@@ -1,4 +1,4 @@
-"""Entry point for the demo executor. Does not place live Futu orders."""
+"""Entry point for the Futu 模拟盘 executor. Never TrdEnv.REAL."""
 
 from analysis.executor import main
 

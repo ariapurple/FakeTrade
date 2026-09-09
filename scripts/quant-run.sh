@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# One command for Cursor Automations: TA-Lib venv, watchlist loop, paper executor.
+# One command for Cursor Automations: TA-Lib venv, watchlist loop, Futu 模拟盘 executor.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "${ROOT}"
@@ -11,7 +11,7 @@ REQ="${ROOT}/requirements-quant-loop.txt"
 
 python_ok() {
   local bin="$1"
-  [ -x "${bin}" ] && "${bin}" -c "import talib, pandas" >/dev/null 2>&1
+  [ -x "${bin}" ] && "${bin}" -c "import talib, pandas, futu" >/dev/null 2>&1
 }
 
 PY=""

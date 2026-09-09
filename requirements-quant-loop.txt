@@ -1,3 +1,4 @@
 numpy
 pandas
 TA-Lib
+futu-api>=10.4.6408

@@ -1,11 +1,11 @@
 {
-  "_comment": "period=1h matches an hourly automation during US hours. Overnight runs reuse the last completed US hour. Use day if you only want one signal per session. buy_votes_needed=3 keeps hourly tests from firing trades; drop to 2 only if you want to exercise the executor.",
+  "_comment": "period=1h matches an hourly automation during US hours. Overnight runs reuse the last completed US hour. execution=futu-sim sends BUY/SELL to Futu OpenD 模拟盘 on this machine. Cloud Automations cannot see OpenD on a laptop. buy_votes_needed=3 keeps hourly tests from firing trades; drop to 2 only if you want to exercise the executor.",
   "period": "1h",
   "count": 80,
   "buy_votes_needed": 3,
   "sell_votes_needed": 3,
   "qty": 1,
-  "execution": "paper",
+  "execution": "futu-sim",
   "symbols": [
     "AAPL.US",
     "NVDA.US",

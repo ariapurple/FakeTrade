@@ -28,9 +28,9 @@ def build_ticket(
             "bias": indicators.get("bias"),
         },
         "source": source,
-        "broker": "futu-niuniu-demo",
+        "broker": "futu-sim",
         "note": (
-            "Not an order. Log into Futu 牛牛 (模拟交易) on the Cloud Agent desktop "
-            "or connect OpenD, then place this ticket by hand or via futu-api."
+            "Ticket only. Unattended fills go through OpenD TrdEnv.SIMULATE "
+            "when config execution=futu-sim. Never REAL."
         ),
     }

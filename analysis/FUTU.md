@@ -1,30 +1,46 @@
-# Futu 牛牛 + OpenD (demo only)
+# Futu 牛牛 + OpenD (模拟盘)
 
-Google’s architecture is right about **one** thing: Python cannot log into the 牛牛 phone app. Programmatic Futu trading goes:
+Fake trades in this repo go through **Futu 模拟盘**, not the internal $100k paper ledger.
 
-`your script → Futu OpenD (127.0.0.1:11111) → 牛牛 desktop session`
+Python cannot log into the 牛牛 phone app. The path is:
 
-That loop only works if OpenD and the Python process share a machine.
+`analysis.executor → futu-api → Futu OpenD (127.0.0.1:11111) → 牛牛 模拟交易`
 
-## What Cursor Automation actually is
+OpenD and the Python process **must share a machine**. Cursor Cloud Automations start a new VM; that VM’s `127.0.0.1` is not your laptop.
 
-Cursor Automations start a **cloud VM**, clone this repo, and run there. That VM’s `127.0.0.1` is not your laptop. Installing OpenD at home does **not** give Cloud Automations a Futu socket.
+## Safety
 
-Ways to demo-trade anyway:
+- `TrdEnv.SIMULATE` only. `TrdEnv.REAL` is never passed.
+- No `unlock_trade`. Simulate does not need a trade password.
+- If OpenD is down, the executor **fails** (`exit 2`). It does not silently paper-fill.
 
-| Path | Who clicks / who APIs | Use when |
-| --- | --- | --- |
-| JSON + 牛牛 模拟交易 by hand | You | First week |
-| Cloud Agent remote desktop | You log into 牛牛 on the agent desktop; agent can assist | Occasional demos |
-| Self-hosted Cursor worker on your PC | OpenD + `futu-api` on that PC | Real automation against Futu |
-| Longbridge CLI preview | `python -m analysis.executor --longbridge-preview` | This Cloud environment (no submit without `--execute`) |
+## What you need on the machine that runs `scripts/quant-run.sh`
 
-## Install on the machine that will trade
+1. 富途牛牛 desktop, logged into **模拟交易**.
+2. [Futu OpenD](https://openapi.futunn.com/) GUI listening on `11111` (same login).
+3. `pip install futu-api` (already in `requirements-quant-loop.txt`).
 
-1. 富途牛牛 desktop, log into **模拟交易**.
-2. [Futu OpenD](https://openapi.futunn.com/) listening on `11111`.
-3. `pip install futu-api` in the same environment as the scripts.
-4. Store the trade-unlock password as a secret (`FUTU_UNLOCK_PASSWORD`). Never commit it.
-5. Keep `TrdEnv.SIMULATE` until you have weeks of dry-run logs.
+Optional env (never commit secrets):
 
-This repo’s `futu_trade.py` is a **dry-run executor**. It will not place Futu orders even if OpenD is up. That is intentional until you ask to wire SIM orders behind a secret.
+| Variable | Meaning |
+| --- | --- |
+| `FUTU_OPEND_HOST` | default `127.0.0.1` |
+| `FUTU_OPEND_PORT` | default `11111` |
+| `FUTU_SECURITY_FIRM` | default `FUTUINC` (US). Also tries `FUTUSECURITIES`. |
+| `FUTU_SIM_ACC_ID` | pin a SIMULATE `acc_id`. REAL ids are refused. |
+
+## Unattended hourly runs
+
+| Where the automation runs | Can it hit 牛牛 模拟盘? |
+| --- | --- |
+| Cursor Cloud VM | Only if OpenD is logged in **on that VM** (remote desktop) and saved in the environment snapshot |
+| Self-hosted Cursor worker on your PC | Yes, if 牛牛 + OpenD stay up on that PC |
+| Laptop OpenD while the job is in the cloud | **No** |
+
+## Check
+
+```bash
+.venv/bin/python -m analysis.futu_sim --check
+```
+
+Watchlist `execution` must be `"futu-sim"` (`config/watchlist.json`).

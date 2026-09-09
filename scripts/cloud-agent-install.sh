@@ -31,3 +31,15 @@ if [ -f "${REQ}" ]; then
     "${VENV}/bin/pip" install -r "${REQ}"
   fi
 fi
+
+LOOP_VENV="${HOME}/.venvs/quant-loop"
+LOOP_REQ="/workspace/requirements-quant-loop.txt"
+if [ -f "${LOOP_REQ}" ]; then
+  if [ ! -x "${LOOP_VENV}/bin/python" ]; then
+    python3 -m venv "${LOOP_VENV}"
+  fi
+  if ! "${LOOP_VENV}/bin/python" -c "import talib, pandas, futu" >/dev/null 2>&1; then
+    "${LOOP_VENV}/bin/pip" install -U pip wheel
+    "${LOOP_VENV}/bin/pip" install -r "${LOOP_REQ}"
+  fi
+fi

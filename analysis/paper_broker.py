@@ -1,4 +1,4 @@
-"""Virtual cash + positions. This is the unattended 'fake trade' — not Longbridge live, not Futu."""
+"""Optional internal ledger. Unattended fake trades use Futu 模拟盘 (`execution=futu-sim`)."""
 
 from __future__ import annotations
 
