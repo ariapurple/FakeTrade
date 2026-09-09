@@ -1,5 +1,7 @@
 # Longbridge + QuantHarness
 
+[English](README.md) | [繁體中文](README.zh-TW.md)
+
 This repo is a Cloud Agent environment for [Longbridge](https://open.longbridge.com) market data plus a vendored copy of [QuantHarness](https://github.com/Y-Research-SBU/QuantHarness) for learning-style technical analysis.
 
 QuantHarness is **not a broker**. It is a four-agent research system (Indicator, Pattern, Trend, Decision) that reads OHLCV and, with a vision LLM key, returns a LONG/SHORT write-up. This repo calls it as a library on **Longbridge** candles.
@@ -22,11 +24,11 @@ scripts/analyze NVDA.US --full   # four-agent graph (needs OPENAI_API_KEY or sim
 .venv/bin/python -m analysis.futu_sim --check
 ```
 
-Edit `config/watchlist.json` to change names or bar size (`day` vs `1h`). Hourly Automations should use `period: "1h"`, `"execution": "futu-sim"`, and `bash scripts/quant-run.sh` (see `automation/quant-demo-loop.md`). OpenD must run on the **same machine** as that script.
+Edit `config/watchlist.json` to change names or rules. Shared users: start with [`config/README.md`](config/README.md) or [`config/README.zh-TW.md`](config/README.zh-TW.md) (symbol format, SMA200 sell, qty 1). Hourly Automations should use `period: "1h"`, `"execution": "futu-sim"`, and `bash scripts/quant-run.sh` (see `automation/quant-demo-loop.md`). OpenD must run on the **same machine** as that script.
 
 `scripts/analyze --json` still analyzes one symbol. Futu OpenD notes: `analysis/FUTU.md`.
 
-On a **Windows PC with OpenD**, use `scripts/WINDOWS.md` (`scripts\windows-setup.ps1`). The Cloud Agent cannot access `D:\CursorRepo`.
+On a **Windows PC with OpenD**, use `scripts/WINDOWS.md` (`scripts\windows-setup.ps1`). How the scheduled job, Longbridge, and 模拟盘 fit together: [`docs/quant-hourly-flow.drawio`](docs/quant-hourly-flow.drawio) (open in [diagrams.net](https://app.diagrams.net/) or the Draw.io VS Code extension). The Cloud Agent cannot access `D:\CursorRepo`.
 
 ### QuantHarness web UI
 
