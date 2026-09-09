@@ -110,15 +110,22 @@ Write-Host "==> Futu OpenD check (127.0.0.1:11111)"
 $checkCode = $LASTEXITCODE
 
 if ($RegisterHourlyTask) {
-    $hourly = Join-Path $Root "scripts\windows-hourly.ps1"
+    $pyw = Join-Path $Root ".venv\Scripts\pythonw.exe"
+    $py = Join-Path $Root ".venv\Scripts\python.exe"
+    $runner = $pyw
+    if (-not (Test-Path $runner)) {
+        $runner = $py
+    }
     $taskName = "QuantFutuSimHourly"
-    Write-Host "==> Task Scheduler $taskName"
-    $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$hourly`"" -WorkingDirectory $Root
-    $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Hours 1) -RepetitionDuration ([TimeSpan]::MaxValue)
-    $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
+    Write-Host "==> Task Scheduler $taskName (hidden, no console)"
+    $action = New-ScheduledTaskAction -Execute $runner -Argument "-m analysis.hourly" -WorkingDirectory $Root
+    # Task Scheduler rejects TimeSpan.MaxValue (P99999999D...). 10 years is "indefinite" in practice.
+    $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 30) -RepetitionDuration (New-TimeSpan -Days 3650)
+    $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances IgnoreNew
+    $settings.Hidden = $true
     Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
-    Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings -Description "Hourly Longbridge analysis + Futu SIMULATE orders" | Out-Null
-    Write-Host "Registered. Keep Futu OpenD logged in."
+    Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings -Description "Every 30 min Longbridge day-bar analysis via pythonw (no CMD popup); Futu SIMULATE only when watchlist execution=futu-sim" | Out-Null
+    Write-Host "Registered hidden pythonw job (every 30 minutes in Futu US sessions; skips Sat 04:00-Sun 20:00 ET)."
 }
 
 Write-Host ""

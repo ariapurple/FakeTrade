@@ -1,15 +1,17 @@
 #Requires -Version 5.1
+# Manual runner. Task Scheduler uses pythonw.exe -m analysis.hourly (no console).
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
 Set-Location $Root
+$Pyw = Join-Path $Root ".venv\Scripts\pythonw.exe"
 $Py = Join-Path $Root ".venv\Scripts\python.exe"
-if (-not (Test-Path $Py)) {
+if (Test-Path $Pyw) {
+    $runner = $Pyw
+} elseif (Test-Path $Py) {
+    $runner = $Py
+} else {
     Write-Error "Missing $Py. Run scripts\windows-setup.ps1 first."
     exit 1
 }
-& $Py -m analysis.loop
-$loopCode = $LASTEXITCODE
-& $Py -m analysis.executor
-$execCode = $LASTEXITCODE
-if ($loopCode -ne 0) { exit $loopCode }
-exit $execCode
+& $runner -m analysis.hourly
+exit $LASTEXITCODE

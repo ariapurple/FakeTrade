@@ -1,0 +1,7 @@
+{
+  "_comment": "Hourly job runs every book listed here. Keep symbols disjoint (one Futu net position per ticker).",
+  "books": [
+    {"id": "long", "file": "config/watchlist.json"},
+    {"id": "short", "file": "config/watchlist-short.json"}
+  ]
+}

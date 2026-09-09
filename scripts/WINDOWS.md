@@ -1,6 +1,6 @@
 # Windows PC (Futu OpenD on this machine)
 
-The Cloud Agent cannot see `D:\CursorRepo`. Hourly 模拟盘 fills must run **on that PC**.
+The Cloud Agent cannot see `D:\CursorRepo`. 模拟盘 fills must run **on that PC**.
 
 ## One-time
 
@@ -23,7 +23,7 @@ That creates `.venv`, installs `futu-api` / pandas / TA-Lib, tries to install Lo
 longbridge auth login
 ```
 
-6. Optional hourly Task Scheduler (same PC, OpenD still running):
+6. Optional 30-minute Task Scheduler (same PC, OpenD still running; hidden `pythonw`, no CMD popup). Signals can refresh in Futu US 盤前/盤中/盤後/夜盤; **模拟盘 orders only Mon–Fri 09:30–16:00 ET** (13:30–20:00 UTC on US daylight time):
 
 ```powershell
 .\scripts\windows-setup.ps1 -RegisterHourlyTask
@@ -35,7 +35,12 @@ longbridge auth login
 cd D:\CursorRepo
 .\.venv\Scripts\python.exe -m analysis.futu_sim --check
 .\.venv\Scripts\python.exe -m analysis.loop
-.\.venv\Scripts\python.exe -m analysis.executor
 ```
 
-`"opend_up": true` means this PC can send 模拟盘 orders. A fill still needs 3/4 agent votes that hour.
+Loop writes two signal files. Hourly places 模拟盘 orders only in US regular hours when `execution` is `futu-sim`:
+
+- `trading_signal_long.json` — buy-and-hold book (`budget_usd` 1000)
+- `trading_signal_short.json` — 1h swing book (`budget_usd` 1000)
+- `trading_signal.json` — index only (pointers, no decisions)
+
+`"opend_up": true` means this PC can send 模拟盘 orders. Each book is capped at `$1000` notional (existing Futu positions in that book's names count). Later BUY is skipped if already long or the cap is full; SELL is skipped if flat. Do not run `python -m analysis.executor` on the index file.

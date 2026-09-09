@@ -1,0 +1,133 @@
+"""Buy-and-hold exits, swing regime, and strategy aliases."""
+
+from __future__ import annotations
+
+import unittest
+from unittest.mock import patch
+
+from analysis.agents import buy_hold_exits, ma_swing
+from analysis.manager import run_watchlist, strategy_from_config
+
+
+def _bars(closes: list[float]) -> list[dict[str, float | str]]:
+    rows = []
+    for idx, close in enumerate(closes):
+        rows.append(
+            {
+                "time": f"2026-01-01T00:00:00Z",
+                "open": close,
+                "high": close,
+                "low": close,
+                "close": close,
+                "volume": 100,
+            }
+        )
+        del idx
+    return rows
+
+
+class StrategyConfigTests(unittest.TestCase):
+    def test_aliases(self) -> None:
+        self.assertEqual(strategy_from_config({"strategy": "buy_hold"}), "buy_hold")
+        self.assertEqual(strategy_from_config({"strategy": "buy-and-hold"}), "buy_hold")
+        self.assertEqual(strategy_from_config({"strategy": "swing"}), "swing")
+        self.assertEqual(strategy_from_config({}), "vote")
+        self.assertEqual(strategy_from_config({"strategy": "vote"}), "vote")
+
+
+class BuyHoldWatchlistTests(unittest.TestCase):
+    @patch("analysis.manager.fetch_quotes", return_value={})
+    @patch("analysis.manager.news_gate", return_value={"signal": "HOLD", "reason": "quiet", "hits": []})
+    @patch("analysis.manager.fetch_klines")
+    @patch("analysis.manager.fetch_calc_index")
+    def test_stays_buy_when_price_holds(self, calc_index, fetch_klines, _news, _quotes) -> None:
+        fetch_klines.return_value = _bars([10.0] * 80)
+        payload = run_watchlist(
+            {
+                "symbols": ["AAPL.US"],
+                "strategy": "buy_hold",
+                "period": "day",
+                "count": 80,
+                "qty": 1,
+                "execution": "dry-run",
+                "news": False,
+            }
+        )
+        calc_index.assert_not_called()
+        row = payload["results"][0]
+        self.assertEqual(payload["config"]["strategy"], "buy_hold")
+        self.assertEqual(row["final_decision"], "BUY")
+        self.assertEqual(row["detailed_reports"]["buy_hold"]["signal"], "BUY")
+
+    def test_exits_below_sma(self) -> None:
+        closes = [100.0] * 70 + [70.0] * 10
+        kline = {
+            "Close": closes,
+            "Open": closes,
+            "High": closes,
+            "Low": closes,
+            "Volume": [1] * 80,
+        }
+        plan = buy_hold_exits(kline, below_sma=60, drawdown_from_high=0.9, high_lookback=60)
+        self.assertEqual(plan["signal"], "SELL")
+
+    def test_exits_on_drawdown(self) -> None:
+        closes = [100.0] * 50 + [70.0] * 10
+        kline = {
+            "Close": closes,
+            "Open": closes,
+            "High": closes,
+            "Low": closes,
+            "Volume": [1] * 60,
+        }
+        plan = buy_hold_exits(kline, below_sma=200, drawdown_from_high=0.25, high_lookback=60)
+        self.assertEqual(plan["signal"], "SELL")
+
+    def test_live_premarket_below_sma_exits(self) -> None:
+        closes = [100.0] * 80
+        kline = {
+            "Close": closes,
+            "Open": closes,
+            "High": closes,
+            "Low": closes,
+            "Volume": [1] * 80,
+        }
+        plan = buy_hold_exits(kline, below_sma=60, last_price=50.0)
+        self.assertEqual(plan["signal"], "SELL")
+        self.assertEqual(plan["close"], 50.0)
+
+    def test_news_sell_overrides(self) -> None:
+        kline = {"Close": [100.0] * 80, "Open": [100.0] * 80, "High": [100.0] * 80, "Low": [100.0] * 80, "Volume": [1] * 80}
+        plan = buy_hold_exits(
+            kline,
+            news_report={"signal": "SELL", "reason": "bankruptcy headline"},
+        )
+        self.assertEqual(plan["signal"], "SELL")
+
+
+class SwingTests(unittest.TestCase):
+    def test_fast_above_slow_is_buy(self) -> None:
+        closes = list(range(1, 40))
+        kline = {
+            "Close": closes,
+            "Open": closes,
+            "High": closes,
+            "Low": closes,
+            "Volume": [1] * len(closes),
+        }
+        self.assertEqual(ma_swing(kline)["signal"], "BUY")
+
+    def test_fast_below_slow_is_sell(self) -> None:
+        closes = list(range(40, 0, -1))
+        kline = {
+            "Close": closes,
+            "Open": closes,
+            "High": closes,
+            "Low": closes,
+            "Volume": [1] * len(closes),
+        }
+        self.assertEqual(ma_swing(kline)["signal"], "SELL")
+
+
+if __name__ == "__main__":
+    unittest.main()

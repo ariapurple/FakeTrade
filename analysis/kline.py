@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import json
-import subprocess
 from typing import Any
+
+from analysis.proc import run_hidden
 
 LONG_BRIDGE_PERIODS: dict[str, str] = {
     "1m": "1m",
@@ -27,7 +28,7 @@ def fetch_klines(symbol: str, period: str = "day", count: int = 60) -> list[dict
         raise ValueError(
             f"Unsupported period {period!r}. Use one of: {', '.join(sorted(LONG_BRIDGE_PERIODS))}"
         )
-    completed = subprocess.run(
+    completed = run_hidden(
         [
             "longbridge",
             "kline",
@@ -39,9 +40,6 @@ def fetch_klines(symbol: str, period: str = "day", count: int = 60) -> list[dict
             "--format",
             "json",
         ],
-        check=False,
-        capture_output=True,
-        text=True,
     )
     if completed.returncode != 0:
         err = (completed.stderr or completed.stdout or "unknown error").strip()

@@ -1,16 +1,25 @@
 {
-  "_comment": "period=1h matches an hourly automation during US hours. Overnight runs reuse the last completed US hour. execution=futu-sim sends BUY/SELL to Futu OpenD 模拟盘 on this machine. Cloud Automations cannot see OpenD on a laptop. buy_votes_needed=3 keeps hourly tests from firing trades; drop to 2 only if you want to exercise the executor.",
-  "period": "1h",
+  "_comment": "Long-term book. Buy-and-hold with exits: close below SMA60, 25% off 60d high, or hard-negative Longbridge news. execution=futu-sim on OpenD 模拟盘 only. budget_usd caps this book's notional at $1000 (qty 1 share max per name).",
+  "strategy": "buy_hold",
+  "period": "day",
   "count": 80,
-  "buy_votes_needed": 3,
-  "sell_votes_needed": 3,
   "qty": 1,
+  "budget_usd": 1000,
   "execution": "futu-sim",
+  "news": true,
+  "sell": {
+    "below_sma": 60,
+    "drawdown_from_high": 0.25,
+    "high_lookback": 60,
+    "news": true
+  },
   "symbols": [
     "AAPL.US",
     "NVDA.US",
     "DRAM.US",
     "SKHY.US",
-    "VOO.US"
+    "VOO.US",
+    "ROK.US",
+    "IFNNY.US"
   ]
 }

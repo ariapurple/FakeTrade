@@ -17,8 +17,8 @@ scripts/analyze NVDA.US --full   # four-agent graph (needs OPENAI_API_KEY or sim
 ### Multi-ticker Quant loop (Automation-ready)
 
 ```bash
-.venv/bin/python -m analysis.loop          # writes trading_signal.json
-.venv/bin/python -m analysis.executor      # Futu 模拟盘 when 3/4 agents agree (needs OpenD)
+.venv/bin/python -m analysis.loop          # writes trading_signal_long.json and trading_signal_short.json
+.venv/bin/python -m analysis.executor --signal trading_signal_long.json   # only if that book is futu-sim
 .venv/bin/python -m analysis.futu_sim --check
 ```
 
