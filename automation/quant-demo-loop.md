@@ -1,43 +1,26 @@
 # Quant demo loop (paste into a Cursor Automation)
 
-This is the real workflow. Cursor Automations run as **Cloud Agents** in a fresh VM. They are not a cron job on your laptop, and they **cannot** see Futu OpenD at `127.0.0.1:11111` on your home PC.
+Cursor Automations are Cloud Agents. Each hourly run is a **new VM**. It cannot see Futu OpenD on your laptop.
 
-## Before you create it
+## Settings
 
-1. Click **Save** on this repo’s Cloud Agent environment (so `longbridge` is installed and logged in).
-2. Keep demo trading only. Do not enable live Futu `TrdEnv.REAL`.
-
-## Settings at [cursor.com/automations](https://cursor.com/automations)
-
-- **Name:** Quant watchlist demo
-- **Trigger:** Scheduled — weekdays every 30 minutes between 13:30–20:00 UTC (US cash session), or start with once per day
-- **Repository:** this repository (required)
-- **Tools:** defaults only. Do not add a “place order” MCP until dry-run looks right.
-- **Model:** your choice
+- **Repository:** this repo (required)
+- **Trigger for testing:** hourly is fine for a few hours
+- **After the plumbing works:** switch to weekdays 13:30–20:00 UTC (US cash hours). Overnight hourly runs reprint the last US hour and still cost a Cloud Agent.
+- **Do not** enable live orders
 
 ## Prompt (paste this)
 
 ```
 You run a paper-trading research loop. Never invent prices. Never place a live order.
 
-On each run:
-1. From the repo root, run:
-   /workspace/.venv/bin/python -m analysis.loop
-   If that interpreter is missing, run: python3 -m analysis.loop
-2. Read trading_signal.json.
-3. Then run:
-   /workspace/.venv/bin/python -m analysis.executor
-4. Summarize every symbol: close, final_decision, buy_votes, sell_votes, and one-line reasons from detailed_reports.
-5. If actionable is empty, say so and stop.
-6. Do not pass --longbridge-preview unless the user later asks for a Longbridge order preview.
-7. Do not call Futu. OpenD is not on this VM.
-8. If a symbol errors, report the error; do not edit code unless the failure is a clear bug in our scripts.
+On each run, from the repo root:
+1. bash scripts/quant-run.sh
+2. Read trading_signal.json (generated this run; it is not in git).
+3. Summarize every symbol: close, period, final_decision, buy_votes, sell_votes, and one-line reasons from detailed_reports.
+4. If actionable is empty, say so and stop. That is expected when buy_votes_needed is 3.
+5. Do not pass --longbridge-preview. Do not call Futu.
+6. If a symbol errors, report it. Do not rewrite strategy code unless the script itself crashed.
 
-Watchlist is config/watchlist.json (AAPL, NVDA, TSLA, MSFT, AMD, SPY).
+Watchlist: config/watchlist.json (AAPL.US, NVDA.US, DRAM.US, SKHY.US, VOO.US, 1h bars).
 ```
-
-## After the first dry-run looks sane
-
-- Edit `config/watchlist.json` to add/remove tickers (`700.HK` works too).
-- Optional: `python -m analysis.executor --longbridge-preview` previews a Longbridge ticket **without** sending it (`--execute` is still required to submit).
-- Futu demo orders need OpenD on the **same computer** as the Python process. For Cloud Automations that means a [self-hosted Cursor worker](https://cursor.com/docs/cloud-agent) on your desktop with 牛牛 + OpenD running — or you place the 模拟交易 order by hand from the JSON.
