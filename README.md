@@ -14,7 +14,16 @@ scripts/analyze NVDA.US          # TA-Lib indicators, no LLM
 scripts/analyze NVDA.US --full   # four-agent graph (needs OPENAI_API_KEY or similar)
 ```
 
-`scripts/analyze --json` prints a `ticket` an automation can hand to 富途牛牛模拟交易. See `analysis/FUTU.md`.
+### Multi-ticker Quant loop (Automation-ready)
+
+```bash
+.venv/bin/python -m analysis.loop          # writes trading_signal.json for AAPL/NVDA/TSLA/MSFT/AMD/SPY
+.venv/bin/python -m analysis.executor      # dry-run; does not place orders
+```
+
+Edit `config/watchlist.json` to change names. Cursor Automation prompt: `automation/quant-demo-loop.md`.
+
+`scripts/analyze --json` still analyzes one symbol. Futu OpenD notes: `analysis/FUTU.md`.
 
 ### QuantHarness web UI
 
@@ -28,7 +37,7 @@ Opens the upstream Flask app (Yahoo Finance by default). Paste a vision LLM key 
 
 1. Save the Cloud Agent environment (Environment panel → **Save**).
 2. Create an automation at [cursor.com/automations](https://cursor.com/automations) pointed at **this repository**.
-3. Use `automation/longbridge-market-briefing.md` for quotes, or ask the agent to run `scripts/analyze SYMBOL --json`.
+3. Use `automation/quant-demo-loop.md` for the multi-ticker Quant loop, or `automation/longbridge-market-briefing.md` for quotes only.
 
 Four-agent QuantHarness analysis needs a Cloud Agent secret: `OPENAI_API_KEY` (or `ANTHROPIC_API_KEY` / `DASHSCOPE_API_KEY` / `MINIMAX_API_KEY`). Indicator-only analysis works without it.
 

@@ -1,0 +1,15 @@
+{
+  "period": "day",
+  "count": 80,
+  "buy_votes_needed": 3,
+  "sell_votes_needed": 3,
+  "qty": 1,
+  "symbols": [
+    "AAPL.US",
+    "NVDA.US",
+    "TSLA.US",
+    "MSFT.US",
+    "AMD.US",
+    "SPY.US"
+  ]
+}

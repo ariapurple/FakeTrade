@@ -7,3 +7,4 @@ data/
 third_party/QuantHarness/data/
 kline_chart.png
 trend_graph.png
+trading_signal.json
