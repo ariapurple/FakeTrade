@@ -3,6 +3,7 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 analysis/output/
-*.png
 data/
 third_party/QuantHarness/data/
+kline_chart.png
+trend_graph.png
