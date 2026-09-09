@@ -1,4 +1,4 @@
-"""Run one watchlist or all books; write trading_signal_long.json / trading_signal_short.json."""
+"""Run one watchlist or all books; write trading_signal_<book-id>.json."""
 
 from __future__ import annotations
 
@@ -100,7 +100,7 @@ def main(argv: list[str] | None = None) -> int:
         payload = {
             "generated_at": now_hk_iso(),
             "data_source": "Longbridge",
-            "_comment": "Index only. Open trading_signal_long.json and trading_signal_short.json for decisions.",
+            "_comment": "Index only. Open each book's trading_signal_<id>.json for decisions.",
             "books": index_books,
             "config": {
                 "books": [row["id"] for row in index_books],

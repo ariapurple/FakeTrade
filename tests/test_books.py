@@ -6,9 +6,11 @@ import unittest
 from pathlib import Path
 
 from analysis.books import (
+    ROOT,
     book_signal_path,
     is_signal_index,
     listed_book_signals,
+    load_books,
     overlap_errors,
 )
 from analysis.news_gate import score_headlines
@@ -53,6 +55,19 @@ class BooksTests(unittest.TestCase):
             )
         )
         self.assertFalse(is_signal_index({"books": [{"id": "long"}], "results": [{"ticker": "AAPL.US"}]}))
+
+    def test_repo_is_one_grouped_hold_book(self) -> None:
+        books = load_books(ROOT)
+        self.assertEqual([book["id"] for book in books], ["hold"])
+        self.assertEqual(books[0]["config"]["strategy"], "buy_hold")
+        self.assertEqual(books[0]["config"]["budget_usd"], 2000)
+        sell = books[0]["config"]["sell"]
+        self.assertEqual(sell["drawdown_from_high"], 0.4)
+        self.assertEqual(sell["high_lookback"], 252)
+        self.assertFalse(overlap_errors(books))
+        symbols = list(books[0]["config"]["symbols"])
+        self.assertIn("AAPL.US", symbols)
+        self.assertIn("AMD.US", symbols)
 
 
 if __name__ == "__main__":

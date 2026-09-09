@@ -40,6 +40,11 @@ class BookSignalTests(unittest.TestCase):
         self.assertEqual(flags[-1], "SELL")
         self.assertEqual(plan["signal"], "SELL")
 
+    def test_never_sell_signals_are_all_buy(self) -> None:
+        frame = _frame([100.0] * 70 + [40.0] * 10)
+        flags = buy_hold_exit_signals(frame, below_sma=0, drawdown_from_high=0.0)
+        self.assertTrue(all(flag == "BUY" for flag in flags))
+
     def test_uptrend_swing_matches_agent(self) -> None:
         frame = _frame(list(range(1, 80)))
         flags = swing_signals(frame)

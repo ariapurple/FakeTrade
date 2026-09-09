@@ -1,4 +1,4 @@
-"""Watchlist manager: buy-and-hold with exits, MA swing, or four-agent vote."""
+"""Watchlist manager: buy-and-hold (optional exits), MA swing, or four-agent vote."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from typing import Any, Literal, assert_never
 
 from analysis.agents import (
     Signal,
+    buy_and_hold,
     buy_hold_exits,
     ma_swing,
     mean_reversion,
@@ -59,13 +60,29 @@ def _final_decision(
 
 
 def _sell_cfg(config: dict[str, Any]) -> dict[str, Any]:
-    block = config.get("sell") if isinstance(config.get("sell"), dict) else {}
+    """Missing or empty ``sell`` means never-sell buy-and-hold."""
+    block = config.get("sell") if isinstance(config.get("sell"), dict) else None
+    if not block:
+        return {
+            "below_sma": 0,
+            "drawdown_from_high": 0.0,
+            "high_lookback": 0,
+            "news": False,
+        }
     return {
-        "below_sma": int(block.get("below_sma", 60)),
-        "drawdown_from_high": float(block.get("drawdown_from_high", 0.25)),
-        "high_lookback": int(block.get("high_lookback", 60)),
-        "news": bool(block.get("news", config.get("news", True))),
+        "below_sma": int(block.get("below_sma") or 0),
+        "drawdown_from_high": float(block.get("drawdown_from_high") or 0),
+        "high_lookback": int(block.get("high_lookback") or 0),
+        "news": bool(block.get("news", False)),
     }
+
+
+def _exits_enabled(sell: dict[str, Any]) -> bool:
+    return bool(
+        sell.get("below_sma")
+        or float(sell.get("drawdown_from_high") or 0) > 0
+        or sell.get("news")
+    )
 
 
 def _news_enabled(config: dict[str, Any], strategy: StrategyName) -> bool:
@@ -96,14 +113,17 @@ def run_symbol(
     live_px = float(live["price"]) if live and live.get("price") else None
     if strategy == "buy_hold":
         sell = _sell_cfg(cfg)
-        plan = buy_hold_exits(
-            kline_data,
-            below_sma=int(sell["below_sma"]),
-            drawdown_from_high=float(sell["drawdown_from_high"]),
-            high_lookback=int(sell["high_lookback"]),
-            news_report=news_report,
-            last_price=live_px,
-        )
+        if _exits_enabled(sell):
+            plan = buy_hold_exits(
+                kline_data,
+                below_sma=int(sell["below_sma"]),
+                drawdown_from_high=float(sell["drawdown_from_high"]),
+                high_lookback=int(sell["high_lookback"]),
+                news_report=news_report,
+                last_price=live_px,
+            )
+        else:
+            plan = buy_and_hold()
         reports = {"buy_hold": plan, "news": news_report}
         decision: Signal = plan["signal"]
         if decision == "HOLD":

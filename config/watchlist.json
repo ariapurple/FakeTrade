@@ -1,17 +1,17 @@
 {
-  "_comment": "Long-term book. Buy-and-hold with exits: close below SMA60, 25% off 60d high, or hard-negative Longbridge news. execution=futu-sim on OpenD 模拟盘 only. budget_usd caps this book's notional at $1000 (qty 1 share max per name).",
+  "_comment": "Grouped 模拟盘 book. Stay long unless live price is 40% off the 252-day high. $2000 / 1-share cap. execution=futu-sim only.",
   "strategy": "buy_hold",
   "period": "day",
-  "count": 80,
+  "count": 300,
   "qty": 1,
-  "budget_usd": 1000,
+  "budget_usd": 2000,
   "execution": "futu-sim",
-  "news": true,
+  "news": false,
   "sell": {
-    "below_sma": 60,
-    "drawdown_from_high": 0.25,
-    "high_lookback": 60,
-    "news": true
+    "below_sma": 0,
+    "drawdown_from_high": 0.4,
+    "high_lookback": 252,
+    "news": false
   },
   "symbols": [
     "AAPL.US",
@@ -20,6 +20,10 @@
     "SKHY.US",
     "VOO.US",
     "ROK.US",
-    "IFNNY.US"
+    "IFNNY.US",
+    "AMD.US",
+    "MU.US",
+    "AVGO.US",
+    "QQQ.US"
   ]
 }

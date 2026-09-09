@@ -21,26 +21,32 @@ LONG_BRIDGE_PERIODS: dict[str, str] = {
 }
 
 
-def fetch_klines(symbol: str, period: str = "day", count: int = 60) -> list[dict[str, Any]]:
+def fetch_klines(
+    symbol: str,
+    period: str = "day",
+    count: int = 60,
+    adjust: str | None = None,
+) -> list[dict[str, Any]]:
     """Return recent candles from the Longbridge CLI as a list of row dicts."""
     mapped = LONG_BRIDGE_PERIODS.get(period)
     if mapped is None:
         raise ValueError(
             f"Unsupported period {period!r}. Use one of: {', '.join(sorted(LONG_BRIDGE_PERIODS))}"
         )
-    completed = run_hidden(
-        [
-            "longbridge",
-            "kline",
-            symbol,
-            "--period",
-            mapped,
-            "--count",
-            str(count),
-            "--format",
-            "json",
-        ],
-    )
+    command = [
+        "longbridge",
+        "kline",
+        symbol,
+        "--period",
+        mapped,
+        "--count",
+        str(count),
+        "--format",
+        "json",
+    ]
+    if adjust:
+        command.extend(["--adjust", str(adjust)])
+    completed = run_hidden(command)
     if completed.returncode != 0:
         err = (completed.stderr or completed.stdout or "unknown error").strip()
         raise RuntimeError(f"longbridge kline failed: {err}")

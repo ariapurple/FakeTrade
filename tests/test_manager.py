@@ -59,6 +59,96 @@ class BuyHoldWatchlistTests(unittest.TestCase):
         self.assertEqual(row["final_decision"], "BUY")
         self.assertEqual(row["detailed_reports"]["buy_hold"]["signal"], "BUY")
 
+    @patch("analysis.manager.fetch_quotes", return_value={})
+    @patch("analysis.manager.news_gate", return_value={"signal": "HOLD", "reason": "off", "hits": []})
+    @patch("analysis.manager.fetch_klines")
+    @patch("analysis.manager.fetch_calc_index")
+    def test_never_sells_without_sell_block(self, calc_index, fetch_klines, _news, _quotes) -> None:
+        fetch_klines.return_value = _bars([100.0] * 70 + [40.0] * 10)
+        payload = run_watchlist(
+            {
+                "symbols": ["AAPL.US"],
+                "strategy": "buy_hold",
+                "period": "day",
+                "count": 80,
+                "qty": 1,
+                "execution": "dry-run",
+                "news": False,
+            }
+        )
+        calc_index.assert_not_called()
+        row = payload["results"][0]
+        self.assertEqual(row["final_decision"], "BUY")
+        self.assertEqual(payload["config"]["sell"]["below_sma"], 0)
+
+    @patch("analysis.manager.fetch_quotes", return_value={})
+    @patch("analysis.manager.news_gate", return_value={"signal": "HOLD", "reason": "quiet", "hits": []})
+    @patch("analysis.manager.fetch_klines")
+    @patch("analysis.manager.fetch_calc_index")
+    def test_sell_block_still_exits(self, calc_index, fetch_klines, _news, _quotes) -> None:
+        fetch_klines.return_value = _bars([100.0] * 70 + [40.0] * 10)
+        payload = run_watchlist(
+            {
+                "symbols": ["AAPL.US"],
+                "strategy": "buy_hold",
+                "period": "day",
+                "count": 80,
+                "qty": 1,
+                "execution": "dry-run",
+                "news": False,
+                "sell": {"below_sma": 60, "drawdown_from_high": 0.25, "high_lookback": 60},
+            }
+        )
+        calc_index.assert_not_called()
+        self.assertEqual(payload["results"][0]["final_decision"], "SELL")
+
+    @patch("analysis.quote.us_quote_session", return_value="rth")
+    @patch("analysis.manager.fetch_quotes")
+    @patch("analysis.manager.news_gate", return_value={"signal": "HOLD", "reason": "off", "hits": []})
+    @patch("analysis.manager.fetch_klines")
+    @patch("analysis.manager.fetch_calc_index")
+    def test_sim_40pct_off_252d_high(self, calc_index, fetch_klines, _news, fetch_quotes, _session) -> None:
+        fetch_klines.return_value = _bars([100.0] * 260)
+        fetch_quotes.return_value = {"AAPL.US": {"symbol": "AAPL.US", "last": "60"}}
+        payload = run_watchlist(
+            {
+                "symbols": ["AAPL.US"],
+                "strategy": "buy_hold",
+                "period": "day",
+                "count": 300,
+                "qty": 1,
+                "execution": "futu-sim",
+                "news": False,
+                "sell": {
+                    "below_sma": 0,
+                    "drawdown_from_high": 0.4,
+                    "high_lookback": 252,
+                    "news": False,
+                },
+            }
+        )
+        calc_index.assert_not_called()
+        self.assertEqual(payload["results"][0]["final_decision"], "SELL")
+        fetch_quotes.return_value = {"AAPL.US": {"symbol": "AAPL.US", "last": "70"}}
+        stay = run_watchlist(
+            {
+                "symbols": ["AAPL.US"],
+                "strategy": "buy_hold",
+                "period": "day",
+                "count": 300,
+                "qty": 1,
+                "execution": "futu-sim",
+                "news": False,
+                "sell": {
+                    "below_sma": 0,
+                    "drawdown_from_high": 0.4,
+                    "high_lookback": 252,
+                    "news": False,
+                },
+            }
+        )
+        self.assertEqual(stay["results"][0]["final_decision"], "BUY")
+
     def test_exits_below_sma(self) -> None:
         closes = [100.0] * 70 + [70.0] * 10
         kline = {

@@ -31,7 +31,7 @@ def load_books(root: Path | None = None) -> list[dict[str, Any]]:
 
 
 def book_signal_path(book_id: str, root: Path | None = None) -> Path:
-    """Repo-root JSON for one book, e.g. trading_signal_long.json."""
+    """Repo-root JSON for one book, e.g. trading_signal_hold.json."""
     base = root or ROOT
     safe = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in str(book_id))
     return base / f"trading_signal_{safe}.json"

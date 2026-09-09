@@ -181,11 +181,11 @@ def value_investing(calc: dict[str, Any] | None) -> dict[str, Any]:
 
 
 def buy_and_hold() -> dict[str, Any]:
-    """Default long-term stance: stay long unless an exit rule fires."""
+    """Stay long. Optional SMA/drawdown/news exits live in buy_hold_exits when enabled."""
     return {
         "signal": "BUY",
         "confidence": 0.7,
-        "reason": "Buy-and-hold: own qty unless SMA/drawdown/news exit fires.",
+        "reason": "Buy-and-hold: stay long; no SMA, drawdown, or news exit.",
     }
 
 
@@ -198,7 +198,7 @@ def buy_hold_exits(
     news_report: dict[str, Any] | None = None,
     last_price: float | None = None,
 ) -> dict[str, Any]:
-    """Long-term exits: live/last price below SMA, deep drawdown from recent high, or hard-negative news."""
+    """Optional long-term exits: live/last price below SMA, deep drawdown, or hard-negative news."""
     frame = _frame(kline_data)
     close = frame["Close"].astype(float)
     last = float(last_price) if last_price is not None else _last(close)
@@ -210,6 +210,14 @@ def buy_hold_exits(
             "reason": "No close for buy-and-hold exit check.",
             "close": None,
         }
+    news_signal = (news_report or {}).get("signal")
+    if not below_sma and drawdown_from_high <= 0 and news_signal != "SELL":
+        return {
+            **buy_and_hold(),
+            "close": round(last, 2),
+            "sma": None,
+            "high": None,
+        }
     sma = _last(talib.SMA(close, timeperiod=int(below_sma))) if below_sma else None
     if sma is not None and last < sma:
         reasons.append(f"price {last:.2f} is below SMA{below_sma} {sma:.2f}")
@@ -220,7 +228,6 @@ def buy_hold_exits(
     if peak and drawdown_from_high > 0 and last <= peak * (1.0 - float(drawdown_from_high)):
         pct = (peak - last) / peak * 100.0
         reasons.append(f"price {last:.2f} is {pct:.1f}% below {high_lookback}d high {peak:.2f}")
-    news_signal = (news_report or {}).get("signal")
     if news_signal == "SELL":
         reasons.append(str((news_report or {}).get("reason") or "hard-negative news"))
     if reasons:
@@ -236,9 +243,14 @@ def buy_hold_exits(
         "signal": "BUY",
         "confidence": 0.7,
         "reason": (
-            f"Buy-and-hold: price {last:.2f} still above SMA{below_sma}"
-            + (f" {sma:.2f}" if sma is not None else "")
-            + " and inside the drawdown cap."
+            f"Buy-and-hold: price {last:.2f} still inside the exit rules"
+            + (f" (SMA{below_sma} {sma:.2f})" if sma is not None else "")
+            + (
+                f", {int(drawdown_from_high * 100)}% off {high_lookback}d high"
+                if drawdown_from_high > 0 and high_lookback
+                else ""
+            )
+            + "."
         ),
         "close": round(last, 2),
         "sma": None if sma is None else round(float(sma), 2),

@@ -37,10 +37,9 @@ cd D:\CursorRepo
 .\.venv\Scripts\python.exe -m analysis.loop
 ```
 
-Loop writes two signal files. Hourly places 模拟盘 orders only in US regular hours when `execution` is `futu-sim`:
+Loop writes one book file. Hourly places 模拟盘 orders only in US regular hours when `execution` is `futu-sim`:
 
-- `trading_signal_long.json` — buy-and-hold book (`budget_usd` 1000)
-- `trading_signal_short.json` — 1h swing book (`budget_usd` 1000)
+- `trading_signal_hold.json` — grouped hold book, sell only if 40% off the 252-day high (`budget_usd` 2000)
 - `trading_signal.json` — index only (pointers, no decisions)
 
-`"opend_up": true` means this PC can send 模拟盘 orders. Each book is capped at `$1000` notional (existing Futu positions in that book's names count). Later BUY is skipped if already long or the cap is full; SELL is skipped if flat. Do not run `python -m analysis.executor` on the index file.
+`"opend_up": true` means this PC can send 模拟盘 orders. The grouped book is capped at `$2000` notional (existing Futu positions in that book's names count). Later BUY is skipped if already long or the cap is full; SELL is skipped if flat. Do not run `python -m analysis.executor` on the index file.

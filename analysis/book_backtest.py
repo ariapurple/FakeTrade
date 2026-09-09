@@ -1,4 +1,4 @@
-"""Backtest the live long/short books: buy-hold exits vs pure hold, and SMA swing.
+"""Backtest the grouped hold book: configured rules vs pure hold.
 
 News is not replayed (no historical headline tape without lookahead).
 """
@@ -39,8 +39,13 @@ def buy_hold_exit_signals(
     drawdown_from_high: float = 0.25,
     high_lookback: int = 60,
 ) -> list[Signal]:
-    """Match live manager: SELL on SMA/drawdown, otherwise BUY. No news."""
+    """Match live manager: SELL on SMA/drawdown, otherwise BUY. No news.
+
+    ``below_sma`` 0 and ``drawdown_from_high`` 0 means never-sell (always BUY).
+    """
     close = frame["close"].astype(float)
+    if not below_sma and float(drawdown_from_high) <= 0:
+        return ["BUY"] * len(frame)
     sma = close.rolling(int(below_sma)).mean() if below_sma else None
     peak = close.rolling(int(high_lookback)).max() if high_lookback else None
     out: list[Signal] = []
@@ -228,9 +233,9 @@ def run_symbols(
             cfg = sell or {}
             signals = buy_hold_exit_signals(
                 frame,
-                below_sma=int(cfg.get("below_sma", 60)),
-                drawdown_from_high=float(cfg.get("drawdown_from_high", 0.25)),
-                high_lookback=int(cfg.get("high_lookback", 60)),
+                below_sma=int(cfg.get("below_sma") or 0),
+                drawdown_from_high=float(cfg.get("drawdown_from_high") or 0),
+                high_lookback=int(cfg.get("high_lookback") or 0),
             )
         elif signal_kind == "swing":
             signals = swing_signals(frame)
@@ -270,9 +275,10 @@ def run_symbols(
 
 
 def run_all(capital: float = CAPITAL) -> dict[str, Any]:
-    long_cfg = json.loads((ROOT / "config" / "watchlist.json").read_text(encoding="utf-8"))
-    short_cfg = json.loads((ROOT / "config" / "watchlist-short.json").read_text(encoding="utf-8"))
-    sell = _sell_cfg(long_cfg)
+    cfg = json.loads((ROOT / "config" / "watchlist.json").read_text(encoding="utf-8"))
+    sell = _sell_cfg(cfg)
+    kind = "swing" if strategy_from_config(cfg) == "swing" else "buy_hold"
+    hold_capital = float(cfg.get("budget_usd") or capital)
     prior = run_symbols(
         PRIOR_LONG,
         period="day",
@@ -282,46 +288,33 @@ def run_all(capital: float = CAPITAL) -> dict[str, Any]:
         sell=sell,
         test_bars=TEST_BARS,
     )
-    long_book = run_symbols(
-        list(long_cfg["symbols"]),
-        period="day",
+    hold_book = run_symbols(
+        list(cfg["symbols"]),
+        period=str(cfg.get("period", "day")),
         count=400,
-        capital=capital,
-        signal_kind="buy_hold",
-        sell=sell,
+        capital=hold_capital,
+        signal_kind=kind,
+        sell=sell if kind == "buy_hold" else None,
         test_bars=TEST_BARS,
     )
-    short_book = run_symbols(
-        list(short_cfg["symbols"]),
-        period=str(short_cfg.get("period", "1h")),
-        count=1000,
-        capital=capital,
-        signal_kind="swing",
-        sell=None,
-        test_bars=None,
-    )
     return {
-        "capital": capital,
+        "capital": hold_capital,
         "prior_four_name_hold": {
             "symbols": PRIOR_LONG,
-            "note": "Same four names as the earlier $1000 hold backtest, plus live SMA60/drawdown exits.",
+            "note": "Same four names as the earlier $1000 hold backtest.",
             **prior,
         },
-        "long": {
-            "strategy": strategy_from_config(long_cfg),
-            "sell": sell,
-            **long_book,
-        },
-        "short": {
-            "strategy": strategy_from_config(short_cfg),
-            **short_book,
+        "hold": {
+            "strategy": strategy_from_config(cfg),
+            "sell": sell if kind == "buy_hold" else None,
+            **hold_book,
         },
         "books_loaded": [book["id"] for book in load_books(ROOT)],
     }
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Backtest live long/short book rules vs buy-and-hold.")
+    parser = argparse.ArgumentParser(description="Backtest the grouped hold book vs buy-and-hold.")
     parser.add_argument("--capital", type=float, default=CAPITAL)
     args = parser.parse_args(argv)
     payload = run_all(capital=float(args.capital))
@@ -341,8 +334,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  ERROR {err['ticker']}: {err['error']}")
 
     _print_book("prior four (AAPL NVDA DRAM VOO)", payload["prior_four_name_hold"])
-    _print_book("long book", payload["long"])
-    _print_book("short book", payload["short"])
+    _print_book("hold book", payload["hold"])
     print(f"wrote {out}")
     return 0
 

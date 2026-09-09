@@ -1,7 +1,6 @@
 {
-  "_comment": "Hourly job runs every book listed here. Keep symbols disjoint (one Futu net position per ticker).",
+  "_comment": "Hourly job runs this grouped book. Stay long unless 40% off the 252-day high.",
   "books": [
-    {"id": "long", "file": "config/watchlist.json"},
-    {"id": "short", "file": "config/watchlist-short.json"}
+    {"id": "hold", "file": "config/watchlist.json"}
   ]
 }

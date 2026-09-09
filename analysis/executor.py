@@ -197,8 +197,10 @@ def execute(
         action["strategy"] = row.get("strategy") or strategy
         if (row.get("strategy") or strategy) == "buy_hold":
             action["note"] = (
-                "Long book (dry-run). No fill. "
-                "Sells only on SMA/drawdown/news. Set execution=futu-sim for 模拟盘."
+                "Buy-and-hold (dry-run). No fill. "
+                "Never sells unless this book enables SMA/drawdown/news. "
+                "Live hold book: 40% off the 252-day high. "
+                "Set execution=futu-sim for 模拟盘."
             )
         else:
             action["note"] = "No fill. Set this book's execution=futu-sim for Futu 模拟盘."
