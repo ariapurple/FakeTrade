@@ -1,4 +1,4 @@
-"""Turn trading_signal.json into a dry-run (default) or Longbridge preview. Never live Futu."""
+"""Turn trading_signal.json into dry-run, paper fills, or Longbridge preview. Never live Futu."""
 
 from __future__ import annotations
 
@@ -9,11 +9,19 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal, assert_never
 
+from analysis.paper_broker import (
+    DEFAULT_LEDGER,
+    apply_fill,
+    load_account,
+    load_ledger,
+    save_ledger,
+)
+
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SIGNAL = ROOT / "trading_signal.json"
 DEFAULT_LOG = ROOT / "analysis" / "output" / "execution_log.json"
 
-Mode = Literal["dry-run", "longbridge-preview"]
+Mode = Literal["dry-run", "paper", "longbridge-preview"]
 
 
 def _futu_opend_up(host: str, port: int) -> bool:
@@ -26,58 +34,94 @@ def _futu_opend_up(host: str, port: int) -> bool:
         return False
 
 
+def mode_from_config(config: dict[str, Any], preview_flag: bool) -> Mode:
+    if preview_flag:
+        return "longbridge-preview"
+    raw = str(config.get("execution", "paper")).strip().lower()
+    if raw in {"paper", "paper-trade", "fake"}:
+        return "paper"
+    if raw in {"longbridge-preview", "preview"}:
+        return "longbridge-preview"
+    return "dry-run"
+
+
 def execute(payload: dict[str, Any], mode: Mode, qty: int) -> dict[str, Any]:
     log: dict[str, Any] = {
         "ran_at": datetime.now(timezone.utc).isoformat(),
         "mode": mode,
         "futu_opend": _futu_opend_up("127.0.0.1", 11111),
         "actions": [],
+        "ledger_path": str(DEFAULT_LEDGER),
     }
+    ledger = load_ledger()
     for row in payload.get("actionable", []):
         decision = row["final_decision"]
         symbol = row["ticker"]
         if decision not in ("BUY", "SELL"):
             continue
+        price = float(row.get("close") or 0)
         action: dict[str, Any] = {
             "ticker": symbol,
             "decision": decision,
             "qty": qty,
+            "price": price,
             "status": "skipped",
         }
         if mode == "dry-run":
             action["status"] = "dry-run"
-            action["note"] = "No order sent. Re-run with --longbridge-preview to preview a Longbridge ticket."
+            action["note"] = "No fill. Set config execution=paper for unattended fake trades."
+        elif mode == "paper":
+            fill = apply_fill(
+                ledger,
+                symbol=symbol,
+                side=decision,
+                qty=qty,
+                price=price,
+                reason=f"watchlist vote {row.get('buy_votes')}/{row.get('sell_votes')}",
+            )
+            action.update(fill)
         elif mode == "longbridge-preview":
             side = "buy" if decision == "BUY" else "sell"
-            cmd = ["longbridge", "order", side, symbol, str(qty), "--format", "json"]
+            cmd = [
+                "longbridge",
+                "order",
+                side,
+                symbol,
+                str(qty),
+                "--order-type",
+                "MO",
+                "--format",
+                "json",
+            ]
             completed = subprocess.run(cmd, check=False, capture_output=True, text=True)
             action["command"] = cmd
             action["returncode"] = completed.returncode
             action["stdout"] = (completed.stdout or "")[-4000:]
             action["stderr"] = (completed.stderr or "")[-2000:]
             action["status"] = "previewed" if completed.returncode == 0 else "preview-failed"
-            action["note"] = "Preview only. longbridge order does not send unless you pass --execute CODE."
+            action["note"] = "Preview only. Never pass --execute unless you intend a live Longbridge order."
         else:
             assert_never(mode)
         log["actions"].append(action)
 
+    if mode == "paper":
+        save_ledger(ledger)
+        log["cash"] = ledger["cash"]
+        log["positions"] = ledger.get("positions", {})
+        log["fills_count"] = len(ledger.get("fills", []))
+
     if not log["actions"]:
         log["note"] = "No BUY/SELL votes reached the threshold. Nothing to execute."
-    if log["futu_opend"]:
-        log["futu_note"] = (
-            "Futu OpenD is listening on 127.0.0.1:11111 on THIS machine. "
-            "Cloud Automations are a different VM — your home-PC OpenD is not this port."
-        )
-    else:
-        log["futu_note"] = (
-            "Futu OpenD is not reachable at 127.0.0.1:11111. "
-            "Install OpenD on the same computer that runs this script (or a Cursor self-hosted worker)."
-        )
+    log["futu_note"] = (
+        "Futu OpenD is not used. Unattended fake trades are the paper ledger. "
+        "Cloud Automations cannot reach OpenD on your laptop."
+    )
+    log["account"] = load_account()
     return log
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Demo executor for Quant watchlist signals.")
+    parser = argparse.ArgumentParser(description="Demo/paper executor for Quant watchlist signals.")
     parser.add_argument("--signal", type=Path, default=DEFAULT_SIGNAL)
     parser.add_argument("--log", type=Path, default=DEFAULT_LOG)
     parser.add_argument(
@@ -92,15 +136,19 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     payload = json.loads(args.signal.read_text(encoding="utf-8"))
-    qty = int(payload.get("config", {}).get("qty", 1))
-    mode: Mode = "longbridge-preview" if args.longbridge_preview else "dry-run"
+    config = payload.get("config", {})
+    qty = int(config.get("qty", 1))
+    mode = mode_from_config(config, args.longbridge_preview)
     log = execute(payload, mode, qty)
     args.log.parent.mkdir(parents=True, exist_ok=True)
     args.log.write_text(json.dumps(log, indent=2, ensure_ascii=False), encoding="utf-8")
-    print(f"mode={log['mode']}  futu_opend={log['futu_opend']}  actions={len(log['actions'])}")
-    print(log.get("futu_note"))
+    print(f"mode={log['mode']}  cash={log.get('cash')}  actions={len(log['actions'])}")
+    if log.get("positions") is not None:
+        print(f"positions {log['positions']}")
     for action in log["actions"]:
-        print(f"  {action['decision']:4} {action['ticker']:10} {action['status']}")
+        print(f"  {action.get('decision', action.get('side'))} {action['ticker']:10} {action['status']}")
+    if log.get("note"):
+        print(log["note"])
     print(f"wrote {args.log}")
     return 0
 

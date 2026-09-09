@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# One command for Cursor Automations: ensure a tiny TA-Lib venv, then loop + dry-run executor.
+# One command for Cursor Automations: TA-Lib venv, watchlist loop, paper executor.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "${ROOT}"

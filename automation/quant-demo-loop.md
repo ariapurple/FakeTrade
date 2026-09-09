@@ -1,26 +1,34 @@
-# Quant demo loop (paste into a Cursor Automation)
+# Finish setup so Automations can paper-trade without you
 
-Cursor Automations are Cloud Agents. Each hourly run is a **new VM**. It cannot see Futu OpenD on your laptop.
+Unattended “fake trades” on Cursor Cloud **cannot** use 富途 OpenD on your laptop. This repo papers in a virtual ledger (`analysis/output/paper_ledger.json`, $100,000 USD). Longbridge live `--execute` is never called.
 
-## Settings
+## Do these now (then you can walk away)
 
-- **Repository:** this repo (required)
-- **Trigger for testing:** hourly is fine for a few hours
-- **After the plumbing works:** switch to weekdays 13:30–20:00 UTC (US cash hours). Overnight hourly runs reprint the last US hour and still cost a Cloud Agent.
-- **Do not** enable live orders
+1. **Save the Cloud Agent environment** (Environment panel → Save). Hourly runs need the Longbridge login that lives in that snapshot.
+2. **Edit the automation** at [cursor.com/automations](https://cursor.com/automations):
+   - Repository = this repo
+   - **Memories = on** (this is how the paper ledger survives each new VM)
+   - Replace the prompt with the block below
+3. Optional later, not required for fake trades: in Longbridge app, enable OpenAPI **trading** scopes. Quote login is not enough for `longbridge assets` / live orders (`403308`). Do **not** enable that if you only want paper.
 
 ## Prompt (paste this)
 
 ```
-You run a paper-trading research loop. Never invent prices. Never place a live order.
+You run an unattended paper-trading loop. Never invent prices. Never place a live Longbridge or Futu order. Never pass --execute to longbridge order.
 
 On each run, from the repo root:
-1. bash scripts/quant-run.sh
-2. Read trading_signal.json (generated this run; it is not in git).
-3. Summarize every symbol: close, period, final_decision, buy_votes, sell_votes, and one-line reasons from detailed_reports.
-4. If actionable is empty, say so and stop. That is expected when buy_votes_needed is 3.
-5. Do not pass --longbridge-preview. Do not call Futu.
-6. If a symbol errors, report it. Do not rewrite strategy code unless the script itself crashed.
 
-Watchlist: config/watchlist.json (AAPL.US, NVDA.US, DRAM.US, SKHY.US, VOO.US, 1h bars).
+1. Restore the paper ledger: if Memory PAPER_LEDGER exists, write its exact JSON to analysis/output/paper_ledger.json (create directories). If it does not exist, skip this step.
+2. bash scripts/quant-run.sh
+3. Read trading_signal.json and analysis/output/execution_log.json.
+4. If analysis/output/paper_ledger.json exists, save its full contents to Memory PAPER_LEDGER (overwrite).
+5. Summarize: each symbol’s decision and votes; any paper fills; cash and positions after the run.
+6. If actionable is empty, say so. That is normal with buy_votes_needed=3.
+7. If a symbol errors, report it. Do not rewrite strategy code unless the script crashed.
+
+Watchlist: config/watchlist.json. Execution is paper (virtual fills only).
 ```
+
+## After you are done
+
+Hourly jobs will: pull Longbridge 1h bars → vote → if 3/4 agree, **paper-fill** 1 share and remember the position. They will not call Futu. Overnight hours still cost a Cloud Agent; switch to US cash hours when testing is enough.

@@ -100,6 +100,7 @@ def run_watchlist(config: dict[str, Any]) -> dict[str, Any]:
             "buy_votes_needed": buy_needed,
             "sell_votes_needed": sell_needed,
             "qty": int(config.get("qty", 1)),
+            "execution": str(config.get("execution", "paper")),
         },
         "results": results,
         "errors": errors,
