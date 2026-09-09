@@ -59,6 +59,43 @@ class QtyBookTests(unittest.TestCase):
         self.assertEqual(three["top_ups"], 1)
         self.assertGreater(three["pnl"], one["pnl"])
 
+    def test_scale_in_adds_one_share_per_buy_day(self) -> None:
+        tapes = {
+            "ADD.US": {
+                "open": {
+                    "2026-01-01": 10.0,
+                    "2026-01-02": 10.0,
+                    "2026-01-03": 10.0,
+                    "2026-01-04": 12.0,
+                },
+                "close": {
+                    "2026-01-01": 10.0,
+                    "2026-01-02": 10.0,
+                    "2026-01-03": 10.0,
+                    "2026-01-04": 12.0,
+                },
+                "signal": {
+                    "2026-01-01": "BUY",
+                    "2026-01-02": "BUY",
+                    "2026-01-03": "BUY",
+                    "2026-01-04": "BUY",
+                },
+                "cheap": {
+                    "2026-01-01": False,
+                    "2026-01-02": False,
+                    "2026-01-03": False,
+                    "2026-01-04": False,
+                },
+            }
+        }
+        hold = simulate_qty_book(tapes, 1000.0, qty=1, qty_cheap=1, scale_in=False)
+        add = simulate_qty_book(tapes, 1000.0, qty=1, qty_cheap=1, scale_in=True)
+        self.assertEqual(hold["shares_bought"], 1)
+        self.assertEqual(add["shares_bought"], 3)
+        self.assertEqual(add["top_ups"], 2)
+        self.assertEqual(add["max_held"]["ADD.US"], 3)
+        self.assertGreater(add["pnl"], hold["pnl"])
+
 
 if __name__ == "__main__":
     unittest.main()

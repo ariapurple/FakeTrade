@@ -29,6 +29,7 @@ from analysis.futu_sim import (
     opend_up,
     pending_buy_notional,
     pending_buy_qty,
+    without_open_buys,
 )
 from analysis.manager import strategy_from_config
 from analysis.quote import live_price_for
@@ -95,6 +96,16 @@ def _row_qty(row: dict[str, Any], default_qty: int) -> int:
         return int(row.get("qty") or default_qty)
     except (TypeError, ValueError):
         return default_qty
+
+
+def _buy_trade_qty(row: dict[str, Any], default_qty: int, config: dict[str, Any]) -> int:
+    """Shares for one BUY ticket. Adds on later BUYs; never more than book qty."""
+    want = _row_qty(row, default_qty)
+    try:
+        cap = int(config.get("qty") or default_qty or 1)
+    except (TypeError, ValueError):
+        cap = default_qty
+    return max(1, min(want, max(1, cap)))
 
 
 def _order_price(row: dict[str, Any]) -> tuple[float, dict[str, Any] | None]:
@@ -324,21 +335,55 @@ def _execute_futu_sim(
                 action["note"] = "No live Longbridge quote or kline close; refused to guess a Futu price."
                 extra["actions"].append(action)
                 continue
-            held = (
+            position = (
                 held_qty(snapshot, ticker)
-                + pending_buy_qty(orders, ticker)
                 + bought_this_run.get(ticker, 0.0)
                 - sold_this_run.get(ticker, 0.0)
             )
-            if row.get("final_decision") == "BUY":
-                held_int = int(held) if held >= 1 else 0
-                if held_int >= want_qty:
+            pending = pending_buy_qty(orders, ticker)
+            cancel_buys = getattr(broker, "cancel_open_buys_for", None)
+            if pending > 0 and row.get("final_decision") == "BUY" and not callable(cancel_buys):
+                action = _empty_action(row, want_qty, price)
+                action["status"] = "skipped-already-long"
+                action["note"] = (
+                    f"Pending BUY still working for {ticker}; will not stack another order."
+                )
+                extra["actions"].append(action)
+                continue
+            if pending > 0 and callable(cancel_buys):
+                cancelled = list(cancel_buys(ticker) or [])
+                extra.setdefault("cancelled_stale_buys", []).extend(cancelled)
+                failed = [item for item in cancelled if item.get("status") != "cancelled"]
+                if failed and row.get("final_decision") == "BUY":
                     action = _empty_action(row, want_qty, price)
-                    action["status"] = "skipped-already-long"
-                    action["note"] = f"Already long {held:g} {ticker} (target {want_qty}); will not add."
+                    action["status"] = "skipped-cancel-failed"
+                    action["note"] = (
+                        f"Could not cancel stale pending BUY for {ticker}; refused to stack another order."
+                    )
                     extra["actions"].append(action)
                     continue
-                need = want_qty - held_int
+                if cancelled and not failed:
+                    released = pending_buy_notional(orders, [ticker])
+                    orders = without_open_buys(orders, ticker)
+                    used = max(0.0, used - released)
+                    if remaining != float("inf"):
+                        remaining += released
+                elif not cancelled and row.get("final_decision") == "BUY":
+                    action = _empty_action(row, want_qty, price)
+                    action["status"] = "skipped-already-long"
+                    action["note"] = (
+                        f"Pending BUY for {ticker} vanished before cancel; skipped this tick to avoid a double fill."
+                    )
+                    extra["actions"].append(action)
+                    continue
+            if row.get("final_decision") == "BUY":
+                if bought_this_run.get(ticker, 0.0) > 0:
+                    action = _empty_action(row, want_qty, price)
+                    action["status"] = "skipped-already-long"
+                    action["note"] = f"Already submitted a BUY for {ticker} this tick; max 1 share per trade."
+                    extra["actions"].append(action)
+                    continue
+                need = _buy_trade_qty(row, qty, config)
                 if remaining == float("inf"):
                     affordable = need
                 else:
@@ -360,13 +405,13 @@ def _execute_futu_sim(
                     extra["actions"].append(action)
                     continue
             elif row.get("final_decision") == "SELL":
-                if held <= 0:
+                if position <= 0:
                     action = _empty_action(row, want_qty, price)
                     action["status"] = "skipped-flat"
                     action["note"] = f"No long position in {ticker}; nothing to sell."
                     extra["actions"].append(action)
                     continue
-                order_qty = int(held) if held >= 1 else want_qty
+                order_qty = int(position) if position >= 1 else want_qty
             else:
                 order_qty = want_qty
             fill = broker.place_simulate(

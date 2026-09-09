@@ -19,6 +19,7 @@ from analysis.futu_sim import (
     held_qty,
     pick_simulate_account,
     to_futu_code,
+    without_open_buys,
 )
 
 
@@ -121,6 +122,15 @@ class MappingTests(unittest.TestCase):
         self.assertEqual(book_notional(positions, ["AAPL.US", "NVDA.US"]), 316.0)
         self.assertEqual(book_notional(positions, ["AMD.US"]), 500.0)
 
+    def test_without_open_buys_drops_only_that_ticker(self) -> None:
+        orders = [
+            {"code": "US.SKHY", "trd_side": "BUY", "order_status": "SUBMITTED", "qty": 1, "dealt_qty": 0},
+            {"code": "US.AAPL", "trd_side": "BUY", "order_status": "SUBMITTED", "qty": 1, "dealt_qty": 0},
+        ]
+        leftover = without_open_buys(orders, "SKHY.US")
+        self.assertEqual(len(leftover), 1)
+        self.assertEqual(leftover[0]["code"], "US.AAPL")
+
     def test_picks_us_stock_simulate_not_real_or_futures(self) -> None:
         rows = FakeTradeContext().get_acc_list()[1].to_dict(orient="records")
         chosen = pick_simulate_account(rows, "US")
@@ -155,8 +165,52 @@ class BrokerTests(unittest.TestCase):
         session = fake.place_calls[0].get("session")
         session_name = str(getattr(session, "name", session) or "NONE").upper()
         self.assertIn(session_name, {"RTH", "NONE"})
+        order_type = fake.place_calls[0]["order_type"]
+        type_name = str(getattr(order_type, "name", order_type) or "").upper()
+        self.assertEqual(type_name, "MARKET")
+        self.assertEqual(fake.place_calls[0]["price"], 0)
+        self.assertEqual(fill["order_type"], "MARKET")
         broker.close()
         self.assertTrue(fake.closed)
+
+    def test_cancel_open_buys_for_only_that_ticker(self) -> None:
+        class TwoOrderFake(FakeTradeContext):
+            def order_list_query(self, **_kwargs: Any) -> tuple[int, pd.DataFrame]:
+                return 0, pd.DataFrame(
+                    [
+                        {
+                            "order_id": "aapl-1",
+                            "order_status": "SUBMITTED",
+                            "code": "US.AAPL",
+                            "qty": 1,
+                            "price": 316.22,
+                            "trd_side": "BUY",
+                        },
+                        {
+                            "order_id": "skhy-1",
+                            "order_status": "SUBMITTED",
+                            "code": "US.SKHY",
+                            "qty": 1,
+                            "price": 185.55,
+                            "trd_side": "BUY",
+                        },
+                    ]
+                )
+
+        fake = TwoOrderFake()
+
+        def factory(_host: str, _port: int, _market: Any, _firm: Any) -> TwoOrderFake:
+            return fake
+
+        broker = FutuSimBroker(host="127.0.0.1", port=11111, context_factory=factory)
+        with patch("analysis.futu_sim.opend_up", return_value=True):
+            broker.connect("US")
+            cancelled = broker.cancel_open_buys_for("SKHY.US")
+        self.assertEqual(len(cancelled), 1)
+        self.assertEqual(cancelled[0]["order_id"], "skhy-1")
+        self.assertEqual(cancelled[0]["status"], "cancelled")
+        self.assertEqual(len(fake.cancel_calls), 1)
+        broker.close()
 
     def test_cancel_open_is_simulate_only(self) -> None:
         fake = FakeTradeContext()
@@ -232,20 +286,28 @@ class ExecutorModeTests(unittest.TestCase):
         self.assertEqual(log["actions"][0]["status"], "futu-sim-submitted")
         self.assertNotIn("cash", log)
 
-    def test_buy_hold_skips_if_already_long(self) -> None:
+    def test_buy_hold_adds_one_when_already_long(self) -> None:
         class Stub:
             def __init__(self) -> None:
-                self.placed = 0
+                self.placed: list[dict[str, Any]] = []
 
             def connect(self, market: str = "US") -> dict[str, Any]:
                 return {"acc_id": 222, "trd_env": "SIMULATE", "market": market}
 
-            def place_simulate(self, **_kwargs: Any) -> dict[str, Any]:
-                self.placed += 1
-                raise AssertionError("must not buy again when already long")
+            def place_simulate(self, **kwargs: Any) -> dict[str, Any]:
+                self.placed.append(kwargs)
+                return {
+                    "ticker": kwargs["symbol"],
+                    "side": kwargs["side"],
+                    "qty": kwargs["qty"],
+                    "price": kwargs["price"],
+                    "status": "futu-sim-submitted",
+                    "trd_env": "SIMULATE",
+                    "order_id": "sim-add",
+                }
 
             def funds(self) -> dict[str, Any]:
-                return {"us_cash": 1}
+                return {"us_cash": 1_000_000}
 
             def positions(self) -> list[dict[str, Any]]:
                 return [{"code": "US.NVDA", "qty": 1}]
@@ -253,16 +315,19 @@ class ExecutorModeTests(unittest.TestCase):
             def close(self) -> None:
                 return None
 
+        stub = Stub()
         payload = {
             "config": {"strategy": "buy_hold", "execution": "futu-sim", "qty": 1},
             "actionable": [
                 {"ticker": "NVDA.US", "final_decision": "BUY", "close": 225.73}
             ],
         }
-        log = execute(payload, "futu-sim", 1, futu_broker=Stub())
-        self.assertEqual(log["actions"][0]["status"], "skipped-already-long")
+        log = execute(payload, "futu-sim", 1, futu_broker=stub)
+        self.assertEqual(len(stub.placed), 1)
+        self.assertEqual(stub.placed[0]["qty"], 1)
+        self.assertEqual(log["actions"][0]["status"], "futu-sim-submitted")
 
-    def test_cheap_target_tops_up_from_one_to_three(self) -> None:
+    def test_cheap_row_qty_still_caps_at_one_per_trade(self) -> None:
         class Stub:
             def __init__(self) -> None:
                 self.placed: list[dict[str, Any]] = []
@@ -310,7 +375,7 @@ class ExecutorModeTests(unittest.TestCase):
             ],
         }
         log = execute(payload, "futu-sim", 1, futu_broker=stub)
-        self.assertEqual(stub.placed[0]["qty"], 2)
+        self.assertEqual(stub.placed[0]["qty"], 1)
         self.assertEqual(log["actions"][0]["status"], "futu-sim-submitted")
 
     def test_sell_skips_when_flat(self) -> None:
@@ -488,6 +553,136 @@ class ExecutorModeTests(unittest.TestCase):
         log = execute(payload, "futu-sim", 1, futu_broker=Stub())
         self.assertEqual(log["actions"][0]["status"], "skipped-already-long")
         self.assertEqual(log["book_notional_before"], 316.22)
+
+    def test_stale_pending_buy_is_cancelled_then_replaced(self) -> None:
+        class Stub:
+            def __init__(self) -> None:
+                self.placed: list[dict[str, Any]] = []
+                self.cancelled_for: list[str] = []
+
+            def place_simulate(self, **kwargs: Any) -> dict[str, Any]:
+                self.placed.append(kwargs)
+                return {
+                    "ticker": kwargs["symbol"],
+                    "side": kwargs["side"],
+                    "qty": kwargs["qty"],
+                    "price": kwargs["price"],
+                    "status": "futu-sim-submitted",
+                    "trd_env": "SIMULATE",
+                    "order_id": "sim-new",
+                    "order_type": "MARKET",
+                }
+
+            def cancel_open_buys_for(self, symbol: str) -> list[dict[str, Any]]:
+                self.cancelled_for.append(symbol)
+                return [{"order_id": "old-skhy", "status": "cancelled", "code": "US.SKHY"}]
+
+            def connect(self, market: str = "US") -> dict[str, Any]:
+                return {"acc_id": 222, "trd_env": "SIMULATE", "market": market}
+
+            def funds(self) -> dict[str, Any]:
+                return {"us_cash": 1_000_000}
+
+            def positions(self) -> list[dict[str, Any]]:
+                return []
+
+            def open_orders(self) -> list[dict[str, Any]]:
+                return [
+                    {
+                        "code": "US.SKHY",
+                        "trd_side": "BUY",
+                        "order_status": "SUBMITTED",
+                        "qty": 1,
+                        "dealt_qty": 0,
+                        "price": 185.55,
+                    }
+                ]
+
+            def close(self) -> None:
+                return None
+
+        stub = Stub()
+        payload = {
+            "config": {
+                "execution": "futu-sim",
+                "qty": 1,
+                "budget_usd": "unlimited",
+                "symbols": ["SKHY.US"],
+            },
+            "actionable": [
+                {"ticker": "SKHY.US", "final_decision": "BUY", "close": 188.43, "execution": "futu-sim"}
+            ],
+        }
+        log = execute(payload, "futu-sim", 1, futu_broker=stub)
+        self.assertEqual(stub.cancelled_for, ["SKHY.US"])
+        self.assertEqual(len(stub.placed), 1)
+        self.assertEqual(stub.placed[0]["symbol"], "SKHY.US")
+        self.assertEqual(log["actions"][0]["status"], "futu-sim-submitted")
+        self.assertEqual(log["cancelled_stale_buys"][0]["order_id"], "old-skhy")
+        self.assertEqual(log["book_notional_before"], 185.55)
+
+    def test_filled_share_replaces_stale_pending_as_one_add(self) -> None:
+        class Stub:
+            def __init__(self) -> None:
+                self.placed: list[dict[str, Any]] = []
+
+            def place_simulate(self, **kwargs: Any) -> dict[str, Any]:
+                self.placed.append(kwargs)
+                return {
+                    "ticker": kwargs["symbol"],
+                    "side": kwargs["side"],
+                    "qty": kwargs["qty"],
+                    "price": kwargs["price"],
+                    "status": "futu-sim-submitted",
+                    "trd_env": "SIMULATE",
+                    "order_id": "sim-add",
+                    "order_type": "MARKET",
+                }
+
+            def cancel_open_buys_for(self, symbol: str) -> list[dict[str, Any]]:
+                return [{"order_id": "old", "status": "cancelled", "code": "US.SKHY", "symbol": symbol}]
+
+            def connect(self, market: str = "US") -> dict[str, Any]:
+                return {"acc_id": 222, "trd_env": "SIMULATE", "market": market}
+
+            def funds(self) -> dict[str, Any]:
+                return {"us_cash": 1_000_000}
+
+            def positions(self) -> list[dict[str, Any]]:
+                return [{"code": "US.SKHY", "qty": 1, "market_val": 188.0}]
+
+            def open_orders(self) -> list[dict[str, Any]]:
+                return [
+                    {
+                        "code": "US.SKHY",
+                        "trd_side": "BUY",
+                        "order_status": "SUBMITTED",
+                        "qty": 1,
+                        "dealt_qty": 0,
+                        "price": 185.55,
+                    }
+                ]
+
+            def close(self) -> None:
+                return None
+
+        stub = Stub()
+        payload = {
+            "config": {
+                "execution": "futu-sim",
+                "qty": 1,
+                "budget_usd": "unlimited",
+                "symbols": ["SKHY.US"],
+            },
+            "actionable": [
+                {"ticker": "SKHY.US", "final_decision": "BUY", "close": 188.43, "execution": "futu-sim"}
+            ],
+        }
+        log = execute(payload, "futu-sim", 1, futu_broker=stub)
+        self.assertEqual(len(stub.placed), 1)
+        self.assertEqual(stub.placed[0]["qty"], 1)
+        self.assertEqual(log["actions"][0]["status"], "futu-sim-submitted")
+        self.assertEqual(log["cancelled_stale_buys"][0]["order_id"], "old")
 
     def test_order_uses_live_premarket_quote(self) -> None:
         class Stub:

@@ -102,8 +102,13 @@ def simulate_qty_book(
     *,
     qty: int = 1,
     qty_cheap: int = 1,
+    scale_in: bool = False,
 ) -> dict[str, Any]:
-    """Integer shares, next-bar open. Target 1 or 3; never trim extras until SMA200 SELL."""
+    """Integer shares, next-bar open. Target 1 or 3; never trim extras until SMA200 SELL.
+
+    ``scale_in`` matches live add-1: each BUY queues one more share (qty) for the
+    next open even if already long. At most one working add; SELL still exits all.
+    """
     all_days = sorted({day for tape in tapes.values() for day in tape["close"]})
     cash = float(capital)
     shares = {symbol: 0 for symbol in tapes}
@@ -119,6 +124,8 @@ def simulate_qty_book(
     cheap_fills = 0
     shares_bought = 0
     cheap_days = 0
+    bought_by = {symbol: 0 for symbol in tapes}
+    max_held = {symbol: 0 for symbol in tapes}
 
     def mark() -> float:
         total = cash
@@ -161,9 +168,11 @@ def simulate_qty_book(
             shares[symbol] = held + fill
             buys += 1
             shares_bought += fill
+            bought_by[symbol] += fill
+            max_held[symbol] = max(max_held[symbol], shares[symbol])
             if held > 0:
                 top_ups += 1
-            if target > qty:
+            if not scale_in and target > qty:
                 cheap_fills += 1
             if shares[symbol] >= target:
                 pending_target.pop(symbol, None)
@@ -181,10 +190,14 @@ def simulate_qty_book(
                 pending_sell.add(symbol)
                 pending_target.pop(symbol, None)
             elif signal == "BUY":
-                target = int(qty_cheap) if tape.get("cheap", {}).get(day) else int(qty)
-                if shares[symbol] < target:
-                    pending_target[symbol] = target
+                if scale_in:
+                    pending_target[symbol] = shares[symbol] + int(qty)
                     pending_sell.discard(symbol)
+                else:
+                    target = int(qty_cheap) if tape.get("cheap", {}).get(day) else int(qty)
+                    if shares[symbol] < target:
+                        pending_target[symbol] = target
+                        pending_sell.discard(symbol)
 
     for symbol, held in list(shares.items()):
         if held > 0 and last_close[symbol] > 0:
@@ -209,7 +222,101 @@ def simulate_qty_book(
         "cheap_day_marks": cheap_days,
         "max_drawdown": round(max_dd, 4),
         "max_drawdown_pct": round(dd_pct, 4),
+        "scale_in": scale_in,
+        "max_held": max_held,
+        "shares_bought_by": bought_by,
         "equity": _sample_points(equity, 24),
+    }
+
+
+LAST_TEN_QTY1 = {
+    "pnl": 2937.6,
+    "buys": 97,
+    "shares_bought": 97,
+    "note": "Last published: 10 names + TSM, qty 1, no add, $1M, ~4y daily next-open.",
+}
+
+
+def _tape_span(frames: dict[str, pd.DataFrame]) -> tuple[str | None, str | None]:
+    first: str | None = None
+    last: str | None = None
+    for frame in frames.values():
+        if frame.empty:
+            continue
+        start = _day_key(frame["time"].iloc[0])
+        end = _day_key(frame["time"].iloc[-1])
+        first = start if first is None or start < first else first
+        last = end if last is None or end > last else last
+    return first, last
+
+
+def _without_equity(row: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in row.items() if key != "equity"}
+
+
+def run_add_compare(
+    *,
+    capital: float,
+    count: int,
+    adjust: str,
+) -> dict[str, Any]:
+    """Current add-1-on-BUY vs last hold-1-until-SELL, same daily tape."""
+    cfg = json.loads((ROOT / "config" / "watchlist.json").read_text(encoding="utf-8"))
+    symbols = [str(name) for name in cfg["symbols"]]
+    frames, errors = load_watchlist_frames(symbols, count=count, adjust=adjust)
+    tapes = tapes_live_qty(frames, lookback=1000, min_bars=252, percentile=0.2)
+    ten_frames = {sym: frame for sym, frame in frames.items() if len(frame) >= 220}
+    ten_tapes = tapes_live_qty(ten_frames, lookback=1000, min_bars=252, percentile=0.2)
+    last_all = simulate_qty_book(tapes, capital, qty=1, qty_cheap=1, scale_in=False)
+    add_all = simulate_qty_book(tapes, capital, qty=1, qty_cheap=1, scale_in=True)
+    last_ten = simulate_qty_book(ten_tapes, capital, qty=1, qty_cheap=1, scale_in=False)
+    add_ten = simulate_qty_book(ten_tapes, capital, qty=1, qty_cheap=1, scale_in=True)
+    start, end = _tape_span(ten_frames or frames)
+    per_symbol = []
+    for symbol in list(ten_tapes) or list(tapes):
+        tape = (ten_tapes or tapes)[symbol]
+        per_symbol.append(
+            {
+                "ticker": symbol,
+                "bars": len(tape["close"]),
+                "last_shares_bought": last_ten["shares_bought_by"].get(symbol, 0)
+                if symbol in last_ten["shares_bought_by"]
+                else last_all["shares_bought_by"].get(symbol, 0),
+                "add_shares_bought": add_ten["shares_bought_by"].get(symbol, 0)
+                if symbol in add_ten["shares_bought_by"]
+                else add_all["shares_bought_by"].get(symbol, 0),
+                "last_max_held": last_ten["max_held"].get(symbol, 0)
+                if symbol in last_ten["max_held"]
+                else last_all["max_held"].get(symbol, 0),
+                "add_max_held": add_ten["max_held"].get(symbol, 0)
+                if symbol in add_ten["max_held"]
+                else add_all["max_held"].get(symbol, 0),
+            }
+        )
+    return {
+        "capital": capital,
+        "count": count,
+        "adjust": adjust,
+        "qty": 1,
+        "start": start,
+        "end": end,
+        "symbols": list(frames),
+        "ten_symbols": list(ten_frames),
+        "skipped": errors,
+        "last_published_ten_qty_1": LAST_TEN_QTY1,
+        "this_run_ten_hold_1": _without_equity(last_ten),
+        "this_run_ten_add_1": _without_equity(add_ten),
+        "this_run_all_hold_1": _without_equity(last_all),
+        "this_run_all_add_1": _without_equity(add_all),
+        "ten_hold_1_equity": last_ten["equity"],
+        "ten_add_1_equity": add_ten["equity"],
+        "per_symbol": per_symbol,
+        "notes": [
+            "Hold-1 = last live rule: BUY until 1 share, skip until SMA200 SELL.",
+            "Add-1 = current live rule: each BUY day queues 1 more share at next open.",
+            "Daily bars only. Live RTH ticks every 30 minutes would add faster.",
+            "SMA200 not ready yet still prints BUY (same as SKHY/DRAM with no SMA).",
+        ],
     }
 
 
@@ -366,7 +473,51 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--capital", type=float, default=1_000_000.0)
     parser.add_argument("--count", type=int, default=1000)
     parser.add_argument("--adjust", default="forward")
+    parser.add_argument(
+        "--compare-add",
+        action="store_true",
+        help="Compare last hold-1 book vs current add-1-on-BUY on the same tape.",
+    )
     args = parser.parse_args(argv)
+    if args.compare_add:
+        payload = run_add_compare(
+            capital=float(args.capital),
+            count=int(args.count),
+            adjust=str(args.adjust),
+        )
+        out = ROOT / "analysis" / "output" / "add_backtest.json"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
+        prior = payload["last_published_ten_qty_1"]
+        hold = payload["this_run_ten_hold_1"]
+        add = payload["this_run_ten_add_1"]
+        hold_all = payload["this_run_all_hold_1"]
+        add_all = payload["this_run_all_add_1"]
+        print(
+            f"window {payload.get('start')} → {payload.get('end')}  "
+            f"ten={len(payload.get('ten_symbols') or [])}  all={len(payload.get('symbols') or [])}"
+        )
+        print(
+            f"last published 10 names qty 1   pnl ${prior['pnl']}  buys={prior['buys']}"
+        )
+        print(
+            f"this tape 10 names hold-1       pnl ${hold['pnl']}  buys={hold['buys']}  "
+            f"shares={hold['shares_bought']}"
+        )
+        print(
+            f"this tape 10 names add-1        pnl ${add['pnl']}  buys={add['buys']}  "
+            f"shares={add['shares_bought']}  top_ups={add['top_ups']}"
+        )
+        print(
+            f"this tape all names hold-1      pnl ${hold_all['pnl']}  buys={hold_all['buys']}  "
+            f"shares={hold_all['shares_bought']}"
+        )
+        print(
+            f"this tape all names add-1       pnl ${add_all['pnl']}  buys={add_all['buys']}  "
+            f"shares={add_all['shares_bought']}  top_ups={add_all['top_ups']}"
+        )
+        print(f"wrote {out}")
+        return 0
     cfg = json.loads((ROOT / "config" / "watchlist.json").read_text(encoding="utf-8"))
     cheap = cfg.get("cheap") if isinstance(cfg.get("cheap"), dict) else {}
     payload = run_qty_compare(

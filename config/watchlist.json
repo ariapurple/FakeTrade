@@ -1,5 +1,5 @@
 {
-  "_comment": "Grouped 模拟盘 book. SMA200 exit. Always qty 1. Futu 模拟盘 cash. execution=futu-sim only.",
+  "_comment": "Grouped 模拟盘 book. SMA200 exit. Qty 1 per BUY (adds on later BUY ticks). Futu 模拟盘 cash. execution=futu-sim only.",
   "strategy": "buy_hold",
   "period": "day",
   "count": 300,

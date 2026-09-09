@@ -47,4 +47,4 @@ Loop writes one book file. The scheduled job places 模拟盘 orders only in US 
 - `trading_signal_hold.json` — grouped hold book, SMA200 exit, Futu 模拟盘 cash (no virtual $2000 purse)
 - `trading_signal.json` — index only (pointers, no decisions)
 
-The grouped book has **no virtual cash cap** (`budget_usd: unlimited`). Each BUY is **1 share** per name. Later BUY is skipped if already long; SELL exits the whole long. Do not run `python -m analysis.executor` on the index file.
+The grouped book has **no virtual cash cap** (`budget_usd: unlimited`). Each BUY is **1 share** per trade and can add while the signal stays BUY. SELL exits the whole long. Do not run `python -m analysis.executor` on the index file.

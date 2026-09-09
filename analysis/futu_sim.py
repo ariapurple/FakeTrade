@@ -215,9 +215,35 @@ def enum_name(value: Any) -> str:
     if name:
         return str(name).upper()
     text = str(value).upper()
-    for prefix in ("TRDENV.", "TRDMARKET.", "TRDSIDE.", "SIMACCTTYPE.", "TRDACCTYPE."):
+    for prefix in (
+        "TRDENV.",
+        "TRDMARKET.",
+        "TRDSIDE.",
+        "SIMACCTTYPE.",
+        "TRDACCTYPE.",
+        "ORDERTYPE.",
+    ):
         text = text.replace(prefix, "")
     return text.strip()
+
+
+def without_open_buys(orders: list[dict[str, Any]], symbol: str) -> list[dict[str, Any]]:
+    """Drop still-working BUY rows for one Longbridge symbol."""
+    code = to_futu_code(symbol).upper()
+    return [row for row in orders if not (_order_code(row) == code and _order_is_open_buy(row))]
+
+
+def _simulate_order_type() -> Any:
+    if OrderType is None:
+        return "MARKET"
+    market = getattr(OrderType, "MARKET", None)
+    if market is not None:
+        return market
+    return OrderType.NORMAL
+
+
+def _order_type_is_market(order_type: Any) -> bool:
+    return enum_name(order_type) in {"MARKET", "MO"} or str(order_type).upper() == "MARKET"
 
 
 def _auth_list(raw: Any) -> list[str]:
@@ -445,12 +471,14 @@ class FutuSimBroker:
         assert self._account is not None
 
         env = _simulate_env()
+        order_type = _simulate_order_type()
+        payload_price = 0.0 if _order_type_is_market(order_type) else float(price)
         payload: dict[str, Any] = {
-            "price": float(price),
+            "price": payload_price,
             "qty": int(qty),
             "code": code,
             "trd_side": _trd_side(side),
-            "order_type": OrderType.NORMAL if OrderType is not None else "NORMAL",
+            "order_type": order_type,
             "adjust_limit": 0.02,
             "trd_env": env,
             "acc_id": int(self._account.get("acc_id") or 0),
@@ -470,6 +498,7 @@ class FutuSimBroker:
             "side": side,
             "qty": qty,
             "price": price,
+            "order_type": enum_name(order_type) or str(order_type),
             "trd_env": "SIMULATE",
             "acc_id": payload["acc_id"],
         }
@@ -484,7 +513,9 @@ class FutuSimBroker:
         result["order_status"] = enum_name(first.get("order_status")) or str(first.get("order_status") or "")
         result["session"] = enum_name(payload.get("session")) or "NONE"
         result["dealt_qty"] = first.get("dealt_qty")
-        result["note"] = "Submitted to Futu 模拟盘 (TrdEnv.SIMULATE). Not a live order."
+        result["note"] = (
+            f"Submitted to Futu 模拟盘 as {result['order_type']} (TrdEnv.SIMULATE). Not a live order."
+        )
         return result
 
     def funds(self) -> dict[str, Any]:
@@ -528,6 +559,28 @@ class FutuSimBroker:
         """Cancel unfilled SIMULATE orders only. Never touches REAL."""
         if self._ctx is None or self._account is None:
             self.connect("US")
+        rows = [
+            row
+            for row in self.open_orders()
+            if enum_name(row.get("order_status") or row.get("status")) in PENDING_ORDER_STATUSES
+        ]
+        return self._cancel_pending_rows(rows)
+
+    def cancel_open_buys_for(self, symbol: str) -> list[dict[str, Any]]:
+        """Cancel still-working SIMULATE BUYs for one ticker. Never touches REAL."""
+        if self._ctx is None or self._account is None:
+            self.connect("US")
+        code = to_futu_code(symbol).upper()
+        rows = [
+            row
+            for row in self.open_orders()
+            if _order_code(row) == code and _order_is_open_buy(row)
+        ]
+        return self._cancel_pending_rows(rows)
+
+    def _cancel_pending_rows(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if self._ctx is None or self._account is None:
+            self.connect("US")
         assert self._ctx is not None
         assert self._account is not None
         env = _simulate_env()
@@ -537,10 +590,8 @@ class FutuSimBroker:
         if ModifyOrderOp is None:
             raise FutuSimError("futu-api ModifyOrderOp is missing; cannot cancel.")
         results: list[dict[str, Any]] = []
-        for row in self.open_orders():
+        for row in rows:
             status = enum_name(row.get("order_status") or row.get("status"))
-            if status not in PENDING_ORDER_STATUSES:
-                continue
             order_id = str(row.get("order_id") or "")
             if not order_id:
                 continue
