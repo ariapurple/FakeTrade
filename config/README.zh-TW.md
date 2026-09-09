@@ -1,6 +1,6 @@
 # 觀察清單（`config/watchlist.json`）
 
-[English](README.md) | 繁體中文
+[English](README.md) | [繁體中文](README.zh-TW.md)
 
 若要改 **模擬盤會交易哪些代號**，以及 **BUY / SELL 怎麼判斷**，只需改這個檔。
 
@@ -14,7 +14,7 @@
 
 ## 修改前
 
-1. 同一台電腦上維持 **Futu OpenD** 登入（`127.0.0.1:11111`）。見 [scripts/WINDOWS.md](../scripts/WINDOWS.md) 與 [analysis/FUTU.md](../analysis/FUTU.md)。
+1. 同一台電腦上維持 **Futu OpenD** 登入（`127.0.0.1:11111`）。最簡單：雙擊 [`quant.cmd`](../quant.cmd) → 選 1 安裝，再選 2 開始。見 [scripts/WINDOWS.md](../scripts/WINDOWS.md) 與 [analysis/FUTU.md](../analysis/FUTU.md)。
 2. 在富途 App 把 **融資功能設定** 關掉，這樣一股成本高於剩餘現金時會失敗，而不是用孖展。
 3. 存檔後，等到下一個平日美股正規交易時段的 **:00 / :30**（09:30–15:30 ET）。那時才會更新訊號並可能下模擬盤單。
 

@@ -14,7 +14,7 @@ Do not run the executor on `trading_signal.json`. That file is an index. The liv
 
 ## Before you edit
 
-1. Keep **Futu OpenD** logged in on the same PC (`127.0.0.1:11111`). See [scripts/WINDOWS.md](../scripts/WINDOWS.md) and [analysis/FUTU.md](../analysis/FUTU.md).
+1. Keep **Futu OpenD** logged in on the same PC (`127.0.0.1:11111`). Easiest: double-click [`quant.cmd`](../quant.cmd) → 1 Setup, then 2 Start. See [scripts/WINDOWS.md](../scripts/WINDOWS.md) and [analysis/FUTU.md](../analysis/FUTU.md).
 2. In the Futu app, turn **融資功能設定** (margin / financing) **off** so a share that costs more than remaining cash fails instead of using 孖展.
 3. After you save this JSON, wait for the next weekday **:00 / :30** tick in US regular hours (09:30–15:30 ET). That is when signals refresh and 模拟盘 orders can go out.
 

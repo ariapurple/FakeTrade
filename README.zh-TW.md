@@ -1,49 +1,77 @@
-# Longbridge + QuantHarness
+# Quant 模擬盤（富途模擬自動交易）
 
 [English](README.md) | 繁體中文
 
-本倉庫是 [Longbridge](https://open.longbridge.com) 行情環境，並內含一份 [QuantHarness](https://github.com/Y-Research-SBU/QuantHarness)，用來做教學向技術分析。
+本專案可在 Windows 電腦跑 **富途模擬盤**：用 Longbridge 取價、buy-and-hold SMA200 規則、每次 BUY 1 股。**絕不會**下真實（`REAL`）單。
 
-QuantHarness **不是券商**。它是四代理研究系統（Indicator、Pattern、Trend、Decision），讀 OHLCV，若有視覺 LLM 金鑰會產出 LONG/SHORT 說明。本倉庫把它當函式庫，打在 **Longbridge** K 線上。
+若有人把這個資料夾分享給你，**不必**自己打 Python 指令。用 `quant.cmd` 即可。
 
-## 本機執行
+## 簡易安裝（Windows 電腦）
+
+必須在 **同一台電腦** 開著：
+
+1. 富途牛牛，已登入 **模擬交易**
+2. [Futu OpenD](https://openapi.futunn.com/) 在 `127.0.0.1:11111`（同一個登入）
+3. **融資功能設定** 已 **關閉**（現金不夠買 1 股時會失敗，而不是用孖展）
+
+然後：
+
+1. 用檔案總管打開本專案資料夾。
+2. 雙擊 **[`quant.cmd`](quant.cmd)**。
+3. 選 **1) Setup 初次安裝**（只做一次：安裝 Python 套件與 Longbridge CLI）。
+4. 若提示 Longbridge 未登入，選 **6) Longbridge login**。
+5. 選 **2) Start 開始自動交易**，打開每 30 分鐘的排程。
+6. 要停時選 **3) Stop**。**4) Status** 可看現在是否開啟。
+
+電腦請 **開著並已登入 Windows**。牛牛與 OpenD 不要關。
+
+| 選單 | 作用 |
+| --- | --- |
+| 1 Setup | 一次性安裝 |
+| 2 Start | 開啟自動交易（`QuantFutuSimHourly`） |
+| 3 Stop | 關閉自動交易（App 可繼續開著） |
+| 4 Status | 上次／下次執行 + OpenD 檢查 |
+| 5 Check OpenD | 探測 `127.0.0.1:11111` |
+| 6 Login | `longbridge auth login` |
+
+訊號在平日美東 **08:00**、**09:00**、正規時段每個 **:00/:30**，以及 **16:30** 更新。模擬盤委託只在 **09:30–15:30 ET** 送出。
+
+流程圖：[`docs/quant-hourly-flow.drawio`](docs/quant-hourly-flow.drawio)（用 [diagrams.net](https://app.diagrams.net/) 開啟）。更多 Windows 說明：[`scripts/WINDOWS.md`](scripts/WINDOWS.md)。
+
+## 要改交易哪些股票
+
+編輯 [`config/watchlist.json`](config/watchlist.json)。說明：[英文](config/README.md) · [繁體中文](config/README.zh-TW.md)。
+
+存檔後，等到下一個允許的 `:00` / `:30`（或用 Status 確認排程是 **ON**）。
+
+## 看結果
+
+- `trading_signal_hold.json` — BUY / SELL / HOLD
+- `analysis/output/execution_log_hold.json` — 已送出／略過／失敗
+
+不要對 `trading_signal.json` 跑 executor。那份只是索引。
+
+---
+
+## 進階（Cloud Agent、QuantHarness、手動 Python）
+
+本倉庫也內含 [QuantHarness](https://github.com/Y-Research-SBU/QuantHarness) 研究說明。那條路 **不是** 模擬盤排程。QuantHarness 不是券商。
 
 ```bash
 curl -sSL https://open.longbridge.com/longbridge/longbridge-terminal/install | sh
 longbridge auth login
-scripts/cloud-agent-install.sh   # Longbridge CLI、skills、QuantHarness venv
-scripts/analyze NVDA.US          # TA-Lib 指標，不用 LLM
-scripts/analyze NVDA.US --full   # 四代理圖（需要 OPENAI_API_KEY 或同類金鑰）
-```
-
-### 多代號 Quant 迴圈（可給 Automation）
-
-```bash
-.venv/bin/python -m analysis.loop          # 寫入 trading_signal_hold.json（以及索引 trading_signal.json）
-.venv/bin/python -m analysis.executor --signal trading_signal_hold.json   # 僅當該帳本是 futu-sim
-.venv/bin/python -m analysis.futu_sim --check
-```
-
-改 `config/watchlist.json` 即可換代號或規則。分享給其他人請先看觀察清單說明：[英文](config/README.md)／[繁體中文](config/README.zh-TW.md)（代號格式、SMA200 賣出、每次 1 股）。Hourly Automation 文件寫的是 `period: "1h"`、`"execution": "futu-sim"` 與 `bash scripts/quant-run.sh`（見 `automation/quant-demo-loop.md`）。OpenD 必須與該腳本跑在 **同一台機器**。
-
-`scripts/analyze --json` 仍只分析單一代號。富途 OpenD 說明：`analysis/FUTU.md`。
-
-在 **有 OpenD 的 Windows PC** 上，用 `scripts/WINDOWS.md`（`scripts\windows-setup.ps1`）。排程、Longbridge 與模擬盤怎麼串起來：[`docs/quant-hourly-flow.drawio`](docs/quant-hourly-flow.drawio)（用 [diagrams.net](https://app.diagrams.net/) 或 VS Code Draw.io 擴充開啟）。Cloud Agent 看不到 `D:\CursorRepo`。
-
-### QuantHarness 網頁介面
-
-```bash
+scripts/cloud-agent-install.sh
+scripts/analyze NVDA.US          # 只跑 TA-Lib
+scripts/analyze NVDA.US --full   # 四代理圖（需要 LLM 金鑰）
 scripts/quantharness-web
 ```
 
-開啟上游 Flask 應用（預設 Yahoo Finance）。在設定貼上視覺 LLM 金鑰即可跑四代理。
+手動迴圈（必須與 OpenD 同一台電腦）：
 
-## Cloud Agents 與 Automations
+```bash
+.venv/bin/python -m analysis.loop
+.venv/bin/python -m analysis.executor --signal trading_signal_hold.json
+.venv/bin/python -m analysis.futu_sim --check
+```
 
-1. 儲存 Cloud Agent 環境（Environment 面板 → **Save**）。
-2. 到 [cursor.com/automations](https://cursor.com/automations) 建立 automation，指向 **這個倉庫**。
-3. 多代號 Quant 迴圈用 `automation/quant-demo-loop.md`；只要報價用 `automation/longbridge-market-briefing.md`。
-
-四代理 QuantHarness 分析需要 Cloud Agent 密鑰：`OPENAI_API_KEY`（或 `ANTHROPIC_API_KEY` / `DASHSCOPE_API_KEY` / `MINIMAX_API_KEY`）。只跑指標則不需要。
-
-Skills 在 `.cursor/skills/`。QuantHarness 原始碼在 `third_party/QuantHarness/`（MIT，Y-Research @SBU）。
+Cursor Automations：`automation/quant-demo-loop.md`。Cloud VM 上看不到你筆電上的 OpenD。
