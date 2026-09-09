@@ -21,7 +21,7 @@ scripts/analyze NVDA.US --full   # four-agent graph (needs OPENAI_API_KEY or sim
 .venv/bin/python -m analysis.executor      # dry-run; does not place orders
 ```
 
-Edit `config/watchlist.json` to change names. Cursor Automation prompt: `automation/quant-demo-loop.md`.
+Edit `config/watchlist.json` to change names or bar size (`day` vs `1h`). Hourly Automations should use `period: "1h"` and `bash scripts/quant-run.sh` (see `automation/quant-demo-loop.md`).
 
 `scripts/analyze --json` still analyzes one symbol. Futu OpenD notes: `analysis/FUTU.md`.
 
