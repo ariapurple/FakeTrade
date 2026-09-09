@@ -26,6 +26,8 @@ Edit `config/watchlist.json` to change names or bar size (`day` vs `1h`). Hourly
 
 `scripts/analyze --json` still analyzes one symbol. Futu OpenD notes: `analysis/FUTU.md`.
 
+On a **Windows PC with OpenD**, use `scripts/WINDOWS.md` (`scripts\windows-setup.ps1`). The Cloud Agent cannot access `D:\CursorRepo`.
+
 ### QuantHarness web UI
 
 ```bash
