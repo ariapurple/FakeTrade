@@ -9,6 +9,8 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_BOOKS = ROOT / "config" / "books.json"
 DEFAULT_WATCHLIST = ROOT / "config" / "watchlist.json"
+DEFAULT_BOOK_BUDGET_USD = 1000.0
+UNLIMITED_BUDGET = {"none", "unlimited"}
 
 
 def load_books(root: Path | None = None) -> list[dict[str, Any]]:
@@ -41,6 +43,62 @@ def book_log_path(book_id: str, root: Path | None = None) -> Path:
     base = root or ROOT
     safe = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in str(book_id))
     return base / "analysis" / "output" / f"execution_log_{safe}.json"
+
+
+def book_cash_path(book_id: str, root: Path | None = None) -> Path:
+    """Uninvested book cash so a $2000 start can grow after sells (no notional cap)."""
+    base = root or ROOT
+    safe = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in str(book_id))
+    return base / "analysis" / "output" / f"book_cash_{safe}.json"
+
+
+def book_starting_usd(config: dict[str, Any]) -> float | None:
+    raw = config.get("starting_usd")
+    if raw is None or raw == "":
+        return None
+    try:
+        return max(0.0, float(raw))
+    except (TypeError, ValueError):
+        return None
+
+
+def book_budget_usd(config: dict[str, Any]) -> float | None:
+    """Notional cap. None means unlimited. ``starting_usd`` without a cap is unlimited."""
+    if "budget_usd" in config:
+        raw = config.get("budget_usd")
+        if raw is None or str(raw).strip().lower() in UNLIMITED_BUDGET:
+            return None
+        try:
+            return max(0.0, float(raw))
+        except (TypeError, ValueError):
+            return DEFAULT_BOOK_BUDGET_USD
+    if book_starting_usd(config) is not None:
+        return None
+    return DEFAULT_BOOK_BUDGET_USD
+
+
+def load_book_cash(
+    path: Path,
+    *,
+    starting_usd: float,
+    book_used: float,
+) -> float:
+    """Uninvested book cash. Missing file seeds leftover of the $starting_usd start."""
+    if path.exists():
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            return max(0.0, float(payload.get("cash")))
+        except (OSError, TypeError, ValueError, json.JSONDecodeError):
+            pass
+    return max(0.0, float(starting_usd) - book_used)
+
+
+def save_book_cash(path: Path, cash: float) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps({"cash": round(float(cash), 4)}, indent=2),
+        encoding="utf-8",
+    )
 
 
 def listed_book_signals(index: dict[str, Any], root: Path | None = None) -> list[tuple[str, Path, Path]]:

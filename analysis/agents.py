@@ -189,6 +189,50 @@ def buy_and_hold() -> dict[str, Any]:
     }
 
 
+def multi_year_cheap(
+    kline_data: dict[str, list[Any]],
+    last_price: float | None = None,
+    *,
+    lookback: int = 1000,
+    min_bars: int = 252,
+    percentile: float = 0.20,
+) -> dict[str, Any]:
+    """True when live/last close is in the cheapest band of the lookback window.
+
+    Needs ``min_bars`` (default 1 year). Names with a short listing stay not-cheap.
+    All-equal history is not cheap.
+    """
+    frame = _frame(kline_data)
+    close = frame["Close"].astype(float).dropna()
+    last = float(last_price) if last_price is not None else _last(close)
+    window = close.iloc[-int(lookback) :] if lookback else close
+    bars = int(len(window))
+    if last is None or bars < int(min_bars):
+        return {
+            "cheap": False,
+            "reason": f"Need {int(min_bars)} daily bars for multi-year cheap; have {bars}.",
+            "percentile_rank": None,
+            "threshold": None,
+            "close": None if last is None else round(last, 2),
+            "bars": bars,
+        }
+    threshold = float(window.quantile(float(percentile)))
+    rank = float((window <= last).mean())
+    cheap = bool(last <= threshold and rank <= float(percentile) + 1e-9)
+    band = int(round(float(percentile) * 100))
+    return {
+        "cheap": cheap,
+        "reason": (
+            f"Price {last:.2f} is at the {rank * 100:.0f}th percentile of {bars}d closes "
+            f"(3-share size if at or below the {band}th / {threshold:.2f})."
+        ),
+        "percentile_rank": round(rank, 4),
+        "threshold": round(threshold, 2),
+        "close": round(last, 2),
+        "bars": bars,
+    }
+
+
 def buy_hold_exits(
     kline_data: dict[str, list[Any]],
     *,

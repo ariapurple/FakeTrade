@@ -5,7 +5,7 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
-from analysis.agents import buy_hold_exits, ma_swing
+from analysis.agents import buy_hold_exits, ma_swing, multi_year_cheap
 from analysis.manager import run_watchlist, strategy_from_config
 
 
@@ -107,9 +107,9 @@ class BuyHoldWatchlistTests(unittest.TestCase):
     @patch("analysis.manager.news_gate", return_value={"signal": "HOLD", "reason": "off", "hits": []})
     @patch("analysis.manager.fetch_klines")
     @patch("analysis.manager.fetch_calc_index")
-    def test_sim_40pct_off_252d_high(self, calc_index, fetch_klines, _news, fetch_quotes, _session) -> None:
-        fetch_klines.return_value = _bars([100.0] * 260)
-        fetch_quotes.return_value = {"AAPL.US": {"symbol": "AAPL.US", "last": "60"}}
+    def test_sim_sma200_exit(self, calc_index, fetch_klines, _news, fetch_quotes, _session) -> None:
+        fetch_klines.return_value = _bars([100.0] * 220)
+        fetch_quotes.return_value = {"AAPL.US": {"symbol": "AAPL.US", "last": "90"}}
         payload = run_watchlist(
             {
                 "symbols": ["AAPL.US"],
@@ -120,16 +120,16 @@ class BuyHoldWatchlistTests(unittest.TestCase):
                 "execution": "futu-sim",
                 "news": False,
                 "sell": {
-                    "below_sma": 0,
-                    "drawdown_from_high": 0.4,
-                    "high_lookback": 252,
+                    "below_sma": 200,
+                    "drawdown_from_high": 0,
+                    "high_lookback": 0,
                     "news": False,
                 },
             }
         )
         calc_index.assert_not_called()
         self.assertEqual(payload["results"][0]["final_decision"], "SELL")
-        fetch_quotes.return_value = {"AAPL.US": {"symbol": "AAPL.US", "last": "70"}}
+        fetch_quotes.return_value = {"AAPL.US": {"symbol": "AAPL.US", "last": "110"}}
         stay = run_watchlist(
             {
                 "symbols": ["AAPL.US"],
@@ -140,14 +140,38 @@ class BuyHoldWatchlistTests(unittest.TestCase):
                 "execution": "futu-sim",
                 "news": False,
                 "sell": {
-                    "below_sma": 0,
-                    "drawdown_from_high": 0.4,
-                    "high_lookback": 252,
+                    "below_sma": 200,
+                    "drawdown_from_high": 0,
+                    "high_lookback": 0,
                     "news": False,
                 },
             }
         )
         self.assertEqual(stay["results"][0]["final_decision"], "BUY")
+
+    @patch("analysis.manager.fetch_quotes", return_value={})
+    @patch("analysis.manager.news_gate", return_value={"signal": "HOLD", "reason": "off", "hits": []})
+    @patch("analysis.manager.fetch_klines")
+    @patch("analysis.manager.fetch_calc_index")
+    def test_buy_qty_stays_one(self, calc_index, fetch_klines, _news, _quotes) -> None:
+        fetch_klines.return_value = _bars([100.0] * 259 + [40.0])
+        payload = run_watchlist(
+            {
+                "symbols": ["AAPL.US"],
+                "strategy": "buy_hold",
+                "period": "day",
+                "count": 300,
+                "qty": 1,
+                "execution": "dry-run",
+                "news": False,
+                "sell": {"below_sma": 0, "drawdown_from_high": 0, "high_lookback": 0},
+            }
+        )
+        calc_index.assert_not_called()
+        row = payload["results"][0]
+        self.assertEqual(row["final_decision"], "BUY")
+        self.assertEqual(row["qty"], 1)
+        self.assertNotIn("qty_cheap", payload["config"])
 
     def test_exits_below_sma(self) -> None:
         closes = [100.0] * 70 + [70.0] * 10
@@ -193,6 +217,44 @@ class BuyHoldWatchlistTests(unittest.TestCase):
             news_report={"signal": "SELL", "reason": "bankruptcy headline"},
         )
         self.assertEqual(plan["signal"], "SELL")
+
+
+class MultiYearCheapTests(unittest.TestCase):
+    def test_bottom_print_is_cheap(self) -> None:
+        closes = [100.0] * 259 + [40.0]
+        kline = {
+            "Close": closes,
+            "Open": closes,
+            "High": closes,
+            "Low": closes,
+            "Volume": [1] * len(closes),
+        }
+        report = multi_year_cheap(kline, min_bars=252, percentile=0.2)
+        self.assertTrue(report["cheap"])
+
+    def test_flat_history_is_not_cheap(self) -> None:
+        closes = [100.0] * 260
+        kline = {
+            "Close": closes,
+            "Open": closes,
+            "High": closes,
+            "Low": closes,
+            "Volume": [1] * 260,
+        }
+        report = multi_year_cheap(kline, min_bars=252, percentile=0.2)
+        self.assertFalse(report["cheap"])
+
+    def test_short_listing_is_not_cheap(self) -> None:
+        closes = [10.0] * 80
+        kline = {
+            "Close": closes,
+            "Open": closes,
+            "High": closes,
+            "Low": closes,
+            "Volume": [1] * 80,
+        }
+        report = multi_year_cheap(kline, min_bars=252, percentile=0.2)
+        self.assertFalse(report["cheap"])
 
 
 class SwingTests(unittest.TestCase):

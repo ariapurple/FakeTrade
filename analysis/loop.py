@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from analysis.books import book_signal_path, load_books, overlap_errors
+from analysis.books import book_budget_usd, book_signal_path, book_starting_usd, load_books, overlap_errors
 from analysis.manager import now_hk_iso, run_watchlist
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -27,12 +27,12 @@ def _tag_rows(payload: dict[str, Any], book_id: str, book_path: str) -> dict[str
         row["book"] = book_id
         row["book_path"] = book_path
         row["strategy"] = strategy
-        row["qty"] = qty
+        row["qty"] = int(row["qty"]) if row.get("qty") is not None else qty
         row["execution"] = execution
     for row in payload.get("actionable") or []:
         row["book"] = book_id
         row["strategy"] = strategy
-        row["qty"] = qty
+        row["qty"] = int(row["qty"]) if row.get("qty") is not None else qty
         row["execution"] = execution
     for err in payload.get("errors") or []:
         err["book"] = book_id
@@ -91,7 +91,8 @@ def main(argv: list[str] | None = None) -> int:
                     "watchlist": book["path"],
                     "signal": signal_path.name,
                     "execution": str(config.get("execution", "dry-run")),
-                    "budget_usd": float(config.get("budget_usd") or 1000),
+                    "budget_usd": book_budget_usd(config),
+                    "starting_usd": book_starting_usd(config),
                     "strategy": str(config.get("strategy", "")),
                     "symbols": list(config.get("symbols") or []),
                     "actionable": len(book_payload.get("actionable") or []),

@@ -23,7 +23,12 @@ That creates `.venv`, installs `futu-api` / pandas / TA-Lib, tries to install Lo
 longbridge auth login
 ```
 
-6. Optional 30-minute Task Scheduler (same PC, OpenD still running; hidden `pythonw`, no CMD popup). Signals can refresh in Futu US 盤前/盤中/盤後/夜盤; **模拟盘 orders only Mon–Fri 09:30–16:00 ET** (13:30–20:00 UTC on US daylight time):
+6. Optional Task Scheduler (same PC, OpenD still running; hidden `pythonw`, no CMD popup). The task ticks every 30 minutes on **`:00` / `:30`**. Python then no-ops except:
+
+- **Signals:** weekday **08:00** and **09:00 ET** (盤前), **09:30–15:30 ET** (盤中), **16:30 ET** (after close)
+- **模拟盘 orders:** weekday **09:30–15:30 ET** only (last scheduled fill 15:30 ET)
+
+In September that is 20:00 / 21:00 HK for 盤前, **21:30–03:30 HK** for fills, 04:30 HK for the after-close bar.
 
 ```powershell
 .\scripts\windows-setup.ps1 -RegisterHourlyTask
@@ -37,9 +42,9 @@ cd D:\CursorRepo
 .\.venv\Scripts\python.exe -m analysis.loop
 ```
 
-Loop writes one book file. Hourly places 模拟盘 orders only in US regular hours when `execution` is `futu-sim`:
+Loop writes one book file. The scheduled job places 模拟盘 orders only in US regular hours (09:30–15:30 ET ticks) when `execution` is `futu-sim`:
 
-- `trading_signal_hold.json` — grouped hold book, sell only if 40% off the 252-day high (`budget_usd` 2000)
+- `trading_signal_hold.json` — grouped hold book, SMA200 exit, Futu 模拟盘 cash (no virtual $2000 purse)
 - `trading_signal.json` — index only (pointers, no decisions)
 
-`"opend_up": true` means this PC can send 模拟盘 orders. The grouped book is capped at `$2000` notional (existing Futu positions in that book's names count). Later BUY is skipped if already long or the cap is full; SELL is skipped if flat. Do not run `python -m analysis.executor` on the index file.
+The grouped book has **no virtual cash cap** (`budget_usd: unlimited`). Each BUY is **1 share** per name. Later BUY is skipped if already long; SELL exits the whole long. Do not run `python -m analysis.executor` on the index file.

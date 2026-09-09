@@ -1,6 +1,9 @@
-"""Unattended 30-minute job: session gate, analysis loop, optional Futu SIMULATE executor.
+"""Unattended job: session-gated analysis loop, optional Futu SIMULATE executor.
 
-Run with pythonw.exe so Task Scheduler does not flash a console or steal focus.
+Task Scheduler fires every 30 minutes on the :00/:30 clock. This module no-ops
+except at weekday 08:00 and 09:00 ET (signals), RTH 09:30-15:30 ET (signals +
+模拟盘), and 16:30 ET (after-close daily bar). Run with pythonw.exe so Task
+Scheduler does not flash a console or steal focus.
 """
 
 from __future__ import annotations
@@ -11,7 +14,7 @@ from pathlib import Path
 from analysis.books import any_futu_sim, listed_book_signals
 from analysis.executor import main as executor_main
 from analysis.loop import main as loop_main
-from analysis.session import in_us_rth, in_us_trade_window
+from analysis.session import should_place_sim, should_refresh_signals
 
 ROOT = Path(__file__).resolve().parents[1]
 SIGNAL_INDEX = ROOT / "trading_signal.json"
@@ -46,10 +49,10 @@ def run_book_executors(index_path: Path = SIGNAL_INDEX) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     del argv
-    if not in_us_trade_window():
+    if not should_refresh_signals():
         return 0
     loop_code = loop_main([])
-    if not in_us_rth():
+    if not should_place_sim():
         return loop_code
     exec_code = run_book_executors()
     if loop_code != 0:

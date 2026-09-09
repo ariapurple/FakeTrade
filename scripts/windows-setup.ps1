@@ -120,12 +120,20 @@ if ($RegisterHourlyTask) {
     Write-Host "==> Task Scheduler $taskName (hidden, no console)"
     $action = New-ScheduledTaskAction -Execute $runner -Argument "-m analysis.hourly" -WorkingDirectory $Root
     # Task Scheduler rejects TimeSpan.MaxValue (P99999999D...). 10 years is "indefinite" in practice.
-    $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 30) -RepetitionDuration (New-TimeSpan -Days 3650)
+    # Next :00 or :30 so 09:30 ET is a tick (not :20/:50).
+    $now = Get-Date
+    $frac = $now.Minute + ($now.Second / 60.0)
+    $mins = [int][Math]::Ceiling($frac / 30.0) * 30
+    $start = (Get-Date -Year $now.Year -Month $now.Month -Day $now.Day -Hour $now.Hour -Minute 0 -Second 0).AddMinutes($mins)
+    if ($start -le $now) {
+        $start = $start.AddMinutes(30)
+    }
+    $trigger = New-ScheduledTaskTrigger -Once -At $start -RepetitionInterval (New-TimeSpan -Minutes 30) -RepetitionDuration (New-TimeSpan -Days 3650)
     $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances IgnoreNew
     $settings.Hidden = $true
     Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
-    Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings -Description "Every 30 min Longbridge day-bar analysis via pythonw (no CMD popup); Futu SIMULATE only when watchlist execution=futu-sim" | Out-Null
-    Write-Host "Registered hidden pythonw job (every 30 minutes in Futu US sessions; skips Sat 04:00-Sun 20:00 ET)."
+    Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings -Description "Every 30 min on :00/:30. Signals at 08:00, 09:00, RTH, 16:30 ET. Futu SIMULATE only 09:30-15:30 ET." | Out-Null
+    Write-Host "Registered hidden pythonw job starting $start (every 30 min on :00/:30). Signals: weekday 08:00, 09:00, RTH, 16:30 ET. 模拟盘: 09:30-15:30 ET."
 }
 
 Write-Host ""

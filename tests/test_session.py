@@ -6,7 +6,13 @@ import unittest
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
-from analysis.session import in_us_rth, in_us_trade_window, us_quote_session
+from analysis.session import (
+    in_us_rth,
+    in_us_trade_window,
+    should_place_sim,
+    should_refresh_signals,
+    us_quote_session,
+)
 
 ET = ZoneInfo("America/New_York")
 
@@ -71,6 +77,27 @@ class SessionWindowTests(unittest.TestCase):
     def test_naive_datetime_treated_as_utc(self) -> None:
         now = datetime(2026, 9, 9, 16, 0)
         self.assertTrue(in_us_trade_window(now))
+
+
+class JobClockTests(unittest.TestCase):
+    def test_signals_at_premarket_rth_and_after_close(self) -> None:
+        self.assertFalse(should_refresh_signals(_et(2026, 9, 9, 7, 30)))
+        self.assertTrue(should_refresh_signals(_et(2026, 9, 9, 8, 0)))
+        self.assertFalse(should_refresh_signals(_et(2026, 9, 9, 8, 30)))
+        self.assertTrue(should_refresh_signals(_et(2026, 9, 9, 9, 0)))
+        self.assertTrue(should_refresh_signals(_et(2026, 9, 9, 9, 30)))
+        self.assertTrue(should_refresh_signals(_et(2026, 9, 9, 15, 30)))
+        self.assertFalse(should_refresh_signals(_et(2026, 9, 9, 16, 0)))
+        self.assertTrue(should_refresh_signals(_et(2026, 9, 9, 16, 30)))
+        self.assertFalse(should_refresh_signals(_et(2026, 9, 9, 17, 0)))
+        self.assertFalse(should_refresh_signals(_et(2026, 9, 12, 9, 30)))
+
+    def test_sim_fills_only_in_rth(self) -> None:
+        self.assertFalse(should_place_sim(_et(2026, 9, 9, 9, 0)))
+        self.assertTrue(should_place_sim(_et(2026, 9, 9, 9, 30)))
+        self.assertTrue(should_place_sim(_et(2026, 9, 9, 15, 30)))
+        self.assertFalse(should_place_sim(_et(2026, 9, 9, 16, 0)))
+        self.assertFalse(should_place_sim(_et(2026, 9, 9, 16, 30)))
 
 
 class HkDisplayTimeTests(unittest.TestCase):

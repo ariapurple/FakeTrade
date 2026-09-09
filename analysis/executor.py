@@ -11,7 +11,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal, Protocol, assert_never
 
-from analysis.books import any_futu_sim, is_signal_index
+from analysis.books import (
+    any_futu_sim,
+    book_budget_usd,
+    book_cash_path,
+    book_starting_usd,
+    is_signal_index,
+    load_book_cash,
+    save_book_cash,
+)
 from analysis.futu_sim import (
     FutuSimBroker,
     FutuSimError,
@@ -39,19 +47,6 @@ DEFAULT_SIGNAL = ROOT / "trading_signal.json"
 DEFAULT_LOG = ROOT / "analysis" / "output" / "execution_log.json"
 
 Mode = Literal["dry-run", "paper", "futu-sim", "longbridge-preview"]
-DEFAULT_BOOK_BUDGET_USD = 1000.0
-
-
-def book_budget_usd(config: dict[str, Any]) -> float:
-    """Per-book notional cap. Defaults to $1000 so the $1M 模拟盘 cash is not used."""
-    raw = config.get("budget_usd")
-    if raw is None or raw == "":
-        return DEFAULT_BOOK_BUDGET_USD
-    try:
-        value = float(raw)
-    except (TypeError, ValueError):
-        return DEFAULT_BOOK_BUDGET_USD
-    return max(0.0, value)
 
 
 class SimBroker(Protocol):
@@ -199,7 +194,7 @@ def execute(
             action["note"] = (
                 "Buy-and-hold (dry-run). No fill. "
                 "Never sells unless this book enables SMA/drawdown/news. "
-                "Live hold book: 40% off the 252-day high. "
+                "Live hold book: sell if live price is below SMA200. "
                 "Set execution=futu-sim for 模拟盘."
             )
         else:
@@ -233,7 +228,10 @@ def execute(
         log["futu_note"] = "Internal paper ledger. Futu OpenD was not called."
 
     if mode == "futu-sim" and futu_rows:
-        extra = _execute_futu_sim(futu_rows, qty, futu_broker, payload.get("config") or {})
+        cfg = dict(payload.get("config") or {})
+        if payload.get("book_id"):
+            cfg["book_id"] = payload["book_id"]
+        extra = _execute_futu_sim(futu_rows, qty, futu_broker, cfg)
         log["actions"].extend(extra.pop("actions", []))
         log.update(extra)
     elif mode == "futu-sim" and dry_rows and not futu_rows:
@@ -279,6 +277,7 @@ def _execute_futu_sim(
 ) -> dict[str, Any]:
     config = config or {}
     budget = book_budget_usd(config)
+    starting = book_starting_usd(config)
     symbols = [str(item) for item in (config.get("symbols") or [])]
     if not symbols:
         symbols = [str(row.get("ticker") or "") for row in actionable if row.get("ticker")]
@@ -286,10 +285,12 @@ def _execute_futu_sim(
         "actions": [],
         "futu_note": "Futu 模拟盘 via OpenD. TrdEnv.REAL is never used.",
         "budget_usd": budget,
+        "starting_usd": starting,
         "budget_symbols": symbols,
     }
     broker = futu_broker or FutuSimBroker()
     owns_broker = futu_broker is None
+    cash_path: Path | None = None
     try:
         extra["futu"] = broker.connect("US")
         extra["futu_opend"] = True
@@ -299,9 +300,18 @@ def _execute_futu_sim(
         orders = list(fetch_orders()) if callable(fetch_orders) else []
         extra["futu_open_orders"] = orders
         used = book_notional(snapshot, symbols) + pending_buy_notional(orders, symbols)
-        remaining = max(0.0, budget - used)
         extra["book_notional_before"] = round(used, 2)
-        extra["budget_remaining_before"] = round(remaining, 2)
+        if starting is not None and budget is None:
+            raw_path = config.get("book_cash_path")
+            cash_path = Path(raw_path) if raw_path else book_cash_path(str(config.get("book_id") or "hold"))
+            remaining = load_book_cash(cash_path, starting_usd=starting, book_used=used)
+            extra["book_cash_path"] = str(cash_path)
+            extra["book_cash_before"] = round(remaining, 2)
+        elif budget is None:
+            remaining = float("inf")
+        else:
+            remaining = max(0.0, budget - used)
+        extra["budget_remaining_before"] = None if remaining == float("inf") else round(remaining, 2)
         bought_this_run: dict[str, float] = {}
         sold_this_run: dict[str, float] = {}
         for row in actionable:
@@ -320,32 +330,45 @@ def _execute_futu_sim(
                 + bought_this_run.get(ticker, 0.0)
                 - sold_this_run.get(ticker, 0.0)
             )
-            if row.get("final_decision") == "BUY" and held >= want_qty:
-                action = _empty_action(row, want_qty, price)
-                action["status"] = "skipped-already-long"
-                action["note"] = f"Already long {held:g} {ticker}; will not add."
-                extra["actions"].append(action)
-                continue
-            if row.get("final_decision") == "SELL" and held <= 0:
-                action = _empty_action(row, want_qty, price)
-                action["status"] = "skipped-flat"
-                action["note"] = f"No long position in {ticker}; nothing to sell."
-                extra["actions"].append(action)
-                continue
-            if row.get("final_decision") == "SELL":
-                order_qty = int(held) if held >= 1 else want_qty
-            else:
-                affordable = int(remaining // price)
-                order_qty = min(want_qty, affordable)
+            if row.get("final_decision") == "BUY":
+                held_int = int(held) if held >= 1 else 0
+                if held_int >= want_qty:
+                    action = _empty_action(row, want_qty, price)
+                    action["status"] = "skipped-already-long"
+                    action["note"] = f"Already long {held:g} {ticker} (target {want_qty}); will not add."
+                    extra["actions"].append(action)
+                    continue
+                need = want_qty - held_int
+                if remaining == float("inf"):
+                    affordable = need
+                else:
+                    affordable = int(remaining // price)
+                order_qty = min(need, affordable)
                 if order_qty < 1:
                     action = _empty_action(row, want_qty, price)
                     action["status"] = "skipped-budget"
-                    action["note"] = (
-                        f"Book cap ${budget:.0f}; ${remaining:.2f} left after "
-                        f"${used:.2f} already in this book's names. {ticker} is ${price:.2f}."
-                    )
+                    if starting is not None and budget is None:
+                        action["note"] = (
+                            f"Book cash ${remaining:.2f} of ${starting:.0f} start "
+                            f"(no cap; grows after sells). {ticker} is ${price:.2f}."
+                        )
+                    else:
+                        action["note"] = (
+                            f"Book cap ${budget:.0f}; ${remaining:.2f} left after "
+                            f"${used:.2f} already in this book's names. {ticker} is ${price:.2f}."
+                        )
                     extra["actions"].append(action)
                     continue
+            elif row.get("final_decision") == "SELL":
+                if held <= 0:
+                    action = _empty_action(row, want_qty, price)
+                    action["status"] = "skipped-flat"
+                    action["note"] = f"No long position in {ticker}; nothing to sell."
+                    extra["actions"].append(action)
+                    continue
+                order_qty = int(held) if held >= 1 else want_qty
+            else:
+                order_qty = want_qty
             fill = broker.place_simulate(
                 symbol=ticker,
                 side=row["final_decision"],
@@ -368,7 +391,13 @@ def _execute_futu_sim(
                     remaining += order_qty * price
                     used = max(0.0, used - order_qty * price)
         extra["book_notional_after"] = round(used, 2)
-        extra["budget_remaining_after"] = round(max(0.0, remaining), 2)
+        if remaining == float("inf"):
+            extra["budget_remaining_after"] = None
+        else:
+            extra["budget_remaining_after"] = round(max(0.0, remaining), 2)
+        if cash_path is not None and remaining != float("inf"):
+            save_book_cash(cash_path, remaining)
+            extra["book_cash_after"] = round(max(0.0, remaining), 2)
         extra["futu_funds"] = broker.funds()
         extra["futu_positions"] = broker.positions()
     except OpenDDownError as exc:
@@ -443,7 +472,12 @@ def main(argv: list[str] | None = None) -> int:
     args.log.parent.mkdir(parents=True, exist_ok=True)
     args.log.write_text(json.dumps(log, indent=2, ensure_ascii=False, default=str), encoding="utf-8")
     print(f"mode={log['mode']}  futu_opend={log.get('futu_opend')}  actions={len(log['actions'])}")
-    if log.get("budget_usd") is not None:
+    if log.get("starting_usd") is not None:
+        print(
+            f"start=${log.get('starting_usd')}  cash {log.get('book_cash_before')} -> {log.get('book_cash_after')}  "
+            f"notional {log.get('book_notional_before')} -> {log.get('book_notional_after')}"
+        )
+    elif log.get("budget_usd") is not None:
         print(
             f"budget=${log.get('budget_usd')}  "
             f"book_notional {log.get('book_notional_before')} -> {log.get('book_notional_after')}  "

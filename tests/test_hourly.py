@@ -14,25 +14,26 @@ from analysis.hourly import main, run_book_executors
 class HourlyJobTests(unittest.TestCase):
     @patch("analysis.hourly.executor_main")
     @patch("analysis.hourly.loop_main")
-    @patch("analysis.hourly.in_us_trade_window", return_value=False)
-    def test_skip_does_not_run_loop(self, _window, loop_main, executor_main) -> None:
+    @patch("analysis.hourly.should_refresh_signals", return_value=False)
+    def test_skip_does_not_run_loop(self, _signals, loop_main, executor_main) -> None:
         self.assertEqual(main([]), 0)
         loop_main.assert_not_called()
         executor_main.assert_not_called()
 
     @patch("analysis.hourly.executor_main")
     @patch("analysis.hourly.loop_main", return_value=0)
-    @patch("analysis.hourly.in_us_rth", return_value=False)
-    @patch("analysis.hourly.in_us_trade_window", return_value=True)
-    def test_outside_rth_signals_only(self, _window, _rth, loop_main, executor_main) -> None:
+    @patch("analysis.hourly.should_place_sim", return_value=False)
+    @patch("analysis.hourly.should_refresh_signals", return_value=True)
+    def test_outside_rth_signals_only(self, _signals, _sim, loop_main, executor_main) -> None:
         self.assertEqual(main([]), 0)
         loop_main.assert_called_once()
         executor_main.assert_not_called()
 
     @patch("analysis.hourly.executor_main")
     @patch("analysis.hourly.loop_main", return_value=0)
-    @patch("analysis.hourly.in_us_trade_window", return_value=True)
-    def test_dry_run_skips_executor(self, _window, loop_main, executor_main) -> None:
+    @patch("analysis.hourly.should_place_sim", return_value=True)
+    @patch("analysis.hourly.should_refresh_signals", return_value=True)
+    def test_dry_run_skips_executor(self, _signals, _sim, loop_main, executor_main) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
             long_file = root / "trading_signal_long.json"

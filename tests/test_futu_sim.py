@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any
 from unittest.mock import patch
 
@@ -260,6 +262,57 @@ class ExecutorModeTests(unittest.TestCase):
         log = execute(payload, "futu-sim", 1, futu_broker=Stub())
         self.assertEqual(log["actions"][0]["status"], "skipped-already-long")
 
+    def test_cheap_target_tops_up_from_one_to_three(self) -> None:
+        class Stub:
+            def __init__(self) -> None:
+                self.placed: list[dict[str, Any]] = []
+
+            def connect(self, market: str = "US") -> dict[str, Any]:
+                return {"acc_id": 222, "trd_env": "SIMULATE", "market": market}
+
+            def place_simulate(self, **kwargs: Any) -> dict[str, Any]:
+                self.placed.append(kwargs)
+                return {
+                    "ticker": kwargs["symbol"],
+                    "side": kwargs["side"],
+                    "qty": kwargs["qty"],
+                    "price": kwargs["price"],
+                    "status": "futu-sim-submitted",
+                    "trd_env": "SIMULATE",
+                    "order_id": "sim-1",
+                }
+
+            def funds(self) -> dict[str, Any]:
+                return {"us_cash": 1_000_000}
+
+            def positions(self) -> list[dict[str, Any]]:
+                return [{"code": "US.AAPL", "qty": 1, "market_val": 40.0}]
+
+            def close(self) -> None:
+                return None
+
+        stub = Stub()
+        payload = {
+            "config": {
+                "execution": "futu-sim",
+                "qty": 1,
+                "budget_usd": "unlimited",
+                "symbols": ["AAPL.US"],
+            },
+            "actionable": [
+                {
+                    "ticker": "AAPL.US",
+                    "final_decision": "BUY",
+                    "close": 40.0,
+                    "qty": 3,
+                    "execution": "futu-sim",
+                }
+            ],
+        }
+        log = execute(payload, "futu-sim", 1, futu_broker=stub)
+        self.assertEqual(stub.placed[0]["qty"], 2)
+        self.assertEqual(log["actions"][0]["status"], "futu-sim-submitted")
+
     def test_sell_skips_when_flat(self) -> None:
         class Stub:
             def connect(self, market: str = "US") -> dict[str, Any]:
@@ -507,6 +560,125 @@ class ExecutorModeTests(unittest.TestCase):
             log = execute(payload, "futu-sim", 1, futu_broker=Stub())
         self.assertEqual(log["status"], "skipped-outside-rth")
         self.assertEqual(log["actions"][0]["status"], "skipped-outside-rth")
+
+    def test_starting_cash_has_no_ceiling(self) -> None:
+        class Stub:
+            def __init__(self) -> None:
+                self.placed: list[dict[str, Any]] = []
+
+            def connect(self, market: str = "US") -> dict[str, Any]:
+                return {"acc_id": 222, "trd_env": "SIMULATE", "market": market}
+
+            def place_simulate(self, **kwargs: Any) -> dict[str, Any]:
+                self.placed.append(kwargs)
+                return {
+                    "ticker": kwargs["symbol"],
+                    "side": kwargs["side"],
+                    "qty": kwargs["qty"],
+                    "price": kwargs["price"],
+                    "status": "futu-sim-submitted",
+                    "trd_env": "SIMULATE",
+                    "order_id": "sim-1",
+                }
+
+            def funds(self) -> dict[str, Any]:
+                return {"us_cash": 1_000_000}
+
+            def positions(self) -> list[dict[str, Any]]:
+                return []
+
+            def close(self) -> None:
+                return None
+
+        with TemporaryDirectory() as tmp:
+            cash_path = Path(tmp) / "book_cash.json"
+            stub = Stub()
+            payload = {
+                "book_id": "hold",
+                "config": {
+                    "execution": "futu-sim",
+                    "qty": 1,
+                    "starting_usd": 500,
+                    "book_cash_path": str(cash_path),
+                    "symbols": ["AAPL.US", "NVDA.US"],
+                },
+                "actionable": [
+                    {"ticker": "AAPL.US", "final_decision": "BUY", "close": 300.0, "execution": "futu-sim"},
+                    {"ticker": "NVDA.US", "final_decision": "BUY", "close": 250.0, "execution": "futu-sim"},
+                ],
+            }
+            log = execute(payload, "futu-sim", 1, futu_broker=stub)
+        self.assertEqual(len(stub.placed), 1)
+        self.assertEqual(stub.placed[0]["symbol"], "AAPL.US")
+        self.assertEqual(log["actions"][1]["status"], "skipped-budget")
+        self.assertIsNone(log["budget_usd"])
+        self.assertEqual(log["starting_usd"], 500)
+        self.assertEqual(log["book_cash_before"], 500)
+        self.assertEqual(log["book_cash_after"], 200.0)
+
+    def test_sell_credits_starting_cash_so_next_buy_can_grow(self) -> None:
+        class Stub:
+            def __init__(self) -> None:
+                self.placed: list[dict[str, Any]] = []
+                self._positions = [{"code": "US.AAPL", "qty": 1, "market_val": 300.0}]
+
+            def connect(self, market: str = "US") -> dict[str, Any]:
+                return {"acc_id": 222, "trd_env": "SIMULATE", "market": market}
+
+            def place_simulate(self, **kwargs: Any) -> dict[str, Any]:
+                self.placed.append(kwargs)
+                if kwargs["side"] == "SELL":
+                    self._positions = []
+                elif kwargs["side"] == "BUY":
+                    self._positions = [
+                        {
+                            "code": f"US.{str(kwargs['symbol']).split('.')[0]}",
+                            "qty": kwargs["qty"],
+                            "market_val": kwargs["qty"] * kwargs["price"],
+                        }
+                    ]
+                return {
+                    "ticker": kwargs["symbol"],
+                    "side": kwargs["side"],
+                    "qty": kwargs["qty"],
+                    "price": kwargs["price"],
+                    "status": "futu-sim-submitted",
+                    "trd_env": "SIMULATE",
+                    "order_id": "sim-1",
+                }
+
+            def funds(self) -> dict[str, Any]:
+                return {"us_cash": 1_000_000}
+
+            def positions(self) -> list[dict[str, Any]]:
+                return list(self._positions)
+
+            def close(self) -> None:
+                return None
+
+        with TemporaryDirectory() as tmp:
+            cash_path = Path(tmp) / "book_cash.json"
+            cash_path.write_text('{"cash": 200}', encoding="utf-8")
+            stub = Stub()
+            payload = {
+                "book_id": "hold",
+                "config": {
+                    "execution": "futu-sim",
+                    "qty": 1,
+                    "starting_usd": 500,
+                    "book_cash_path": str(cash_path),
+                    "symbols": ["AAPL.US", "NVDA.US"],
+                },
+                "actionable": [
+                    {"ticker": "AAPL.US", "final_decision": "SELL", "close": 300.0, "execution": "futu-sim"},
+                    {"ticker": "NVDA.US", "final_decision": "BUY", "close": 250.0, "execution": "futu-sim"},
+                ],
+            }
+            log = execute(payload, "futu-sim", 1, futu_broker=stub)
+        self.assertEqual([row["side"] for row in stub.placed], ["SELL", "BUY"])
+        self.assertEqual(stub.placed[1]["symbol"], "NVDA.US")
+        self.assertEqual(log["book_cash_before"], 200.0)
+        self.assertEqual(log["book_cash_after"], 250.0)
 
 
 if __name__ == "__main__":

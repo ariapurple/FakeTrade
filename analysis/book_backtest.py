@@ -278,7 +278,7 @@ def run_all(capital: float = CAPITAL) -> dict[str, Any]:
     cfg = json.loads((ROOT / "config" / "watchlist.json").read_text(encoding="utf-8"))
     sell = _sell_cfg(cfg)
     kind = "swing" if strategy_from_config(cfg) == "swing" else "buy_hold"
-    hold_capital = float(cfg.get("budget_usd") or capital)
+    hold_capital = float(cfg.get("starting_usd") or cfg.get("budget_usd") or capital)
     prior = run_symbols(
         PRIOR_LONG,
         period="day",

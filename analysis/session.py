@@ -52,6 +52,30 @@ def in_us_rth(now: datetime | None = None) -> bool:
     return RTH_START_ET <= clock < RTH_END_ET
 
 
+def should_refresh_signals(now: datetime | None = None) -> bool:
+    """Day-bar SMA200 snapshots: 08:00, 09:00, RTH :00/:30, and 16:30 ET. Weekdays only."""
+    if not in_us_trade_window(now):
+        return False
+    eastern = _eastern(now)
+    if eastern.weekday() >= 5:
+        return False
+    if in_us_rth(now):
+        return True
+    clock = eastern.time()
+    if time(8, 0) <= clock < time(8, 30):
+        return True
+    if time(9, 0) <= clock < time(9, 30):
+        return True
+    if time(16, 30) <= clock < time(17, 0):
+        return True
+    return False
+
+
+def should_place_sim(now: datetime | None = None) -> bool:
+    """模拟盘 fills: Mon-Fri 09:30-16:00 ET (scheduled ticks 09:30 through 15:30)."""
+    return in_us_rth(now)
+
+
 def us_quote_session(now: datetime | None = None) -> QuoteSession:
     """Which US tape to read: 盤前 / 盤中 / 盤後 / 夜盤."""
     if not in_us_trade_window(now):

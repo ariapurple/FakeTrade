@@ -16,6 +16,7 @@ from analysis.agents import (
     volume_spread,
     vote_weight,
 )
+from analysis.books import book_budget_usd, book_starting_usd
 from analysis.fundamentals import fetch_calc_index
 from analysis.kline import fetch_klines, to_quantharness
 from analysis.news_gate import news_gate
@@ -111,6 +112,7 @@ def run_symbol(
     kline_data = to_quantharness(rows)
     news_report = news_gate(symbol, enabled=_news_enabled(cfg, strategy))
     live_px = float(live["price"]) if live and live.get("price") else None
+    qty = max(1, int(cfg.get("qty") or 1))
     if strategy == "buy_hold":
         sell = _sell_cfg(cfg)
         if _exits_enabled(sell):
@@ -166,6 +168,7 @@ def run_symbol(
         "quote_session": None if not live else live.get("session"),
         "quote_source": None if not live else live.get("source"),
         "final_decision": decision,
+        "qty": qty,
         "buy_votes": buy_votes,
         "sell_votes": sell_votes,
         "detailed_reports": reports,
@@ -214,8 +217,9 @@ def run_watchlist(config: dict[str, Any]) -> dict[str, Any]:
             "strategy": strategy,
             "buy_votes_needed": buy_needed,
             "sell_votes_needed": sell_needed,
-            "qty": int(config.get("qty", 1)),
-            "budget_usd": float(config.get("budget_usd") or 1000),
+            "qty": max(1, int(config.get("qty") or 1)),
+            "budget_usd": book_budget_usd(config),
+            "starting_usd": book_starting_usd(config),
             "execution": str(config.get("execution", "paper")),
             "news": _news_enabled(config, strategy),
             "sell": _sell_cfg(config) if strategy == "buy_hold" else None,

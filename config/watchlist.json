@@ -1,16 +1,16 @@
 {
-  "_comment": "Grouped 模拟盘 book. Stay long unless live price is 40% off the 252-day high. $2000 / 1-share cap. execution=futu-sim only.",
+  "_comment": "Grouped 模拟盘 book. SMA200 exit. Always qty 1. Futu 模拟盘 cash. execution=futu-sim only.",
   "strategy": "buy_hold",
   "period": "day",
   "count": 300,
   "qty": 1,
-  "budget_usd": 2000,
+  "budget_usd": "unlimited",
   "execution": "futu-sim",
   "news": false,
   "sell": {
-    "below_sma": 0,
-    "drawdown_from_high": 0.4,
-    "high_lookback": 252,
+    "below_sma": 200,
+    "drawdown_from_high": 0,
+    "high_lookback": 0,
     "news": false
   },
   "symbols": [
@@ -24,6 +24,7 @@
     "AMD.US",
     "MU.US",
     "AVGO.US",
-    "QQQ.US"
+    "QQQ.US",
+    "TSM.US"
   ]
 }
