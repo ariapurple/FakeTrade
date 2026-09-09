@@ -19,6 +19,7 @@ try:
         TrdEnv,
         TrdMarket,
         TrdSide,
+        ModifyOrderOp,
     )
 except ImportError:  # pragma: no cover — tests inject a context factory
     RET_OK = 0
@@ -30,6 +31,7 @@ except ImportError:  # pragma: no cover — tests inject a context factory
     TrdEnv = None
     TrdMarket = None
     TrdSide = None
+    ModifyOrderOp = None
 
 Side = Literal["BUY", "SELL"]
 ContextFactory = Callable[[str, int, Any, Any], Any]
@@ -73,6 +75,139 @@ def to_futu_code(longbridge_symbol: str) -> str:
     raise FutuSimError(f"Unsupported market {market} in {longbridge_symbol!r}.")
 
 
+def position_notional(row: dict[str, Any]) -> float:
+    """USD market value of one Futu position row."""
+    for key in ("market_val", "market_value"):
+        raw = row.get(key)
+        if raw is None or raw == "":
+            continue
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            continue
+        if value > 0:
+            return value
+    try:
+        qty = float(row.get("qty") or row.get("qty_pos") or 0)
+    except (TypeError, ValueError):
+        qty = 0.0
+    price = 0.0
+    for key in ("nominal_price", "price", "cost_price", "average_cost"):
+        raw = row.get(key)
+        if raw is None or raw == "":
+            continue
+        try:
+            price = float(raw)
+        except (TypeError, ValueError):
+            continue
+        if price > 0:
+            break
+    return max(0.0, qty * price)
+
+
+def book_notional(positions: list[dict[str, Any]], symbols: list[str]) -> float:
+    """Market value of Futu positions that belong to this book's tickers."""
+    wanted: set[str] = set()
+    for symbol in symbols:
+        try:
+            wanted.add(to_futu_code(str(symbol)).upper())
+        except FutuSimError:
+            continue
+    if not wanted:
+        return 0.0
+    total = 0.0
+    for row in positions:
+        code = str(row.get("code") or row.get("stock_code") or "").strip().upper()
+        if code in wanted:
+            total += position_notional(row)
+    return total
+
+
+def held_qty(positions: list[dict[str, Any]], symbol: str) -> float:
+    """Long qty for a Longbridge symbol in a Futu position_list_query snapshot."""
+    code = to_futu_code(symbol).upper()
+    total = 0.0
+    for row in positions:
+        row_code = str(row.get("code") or row.get("stock_code") or "").strip().upper()
+        if row_code != code:
+            continue
+        qty_raw = row.get("qty", row.get("qty_pos", row.get("can_sell_qty")))
+        try:
+            qty = float(qty_raw)
+        except (TypeError, ValueError):
+            continue
+        if qty > 0:
+            total += qty
+    return total
+
+
+PENDING_ORDER_STATUSES = {
+    "UNSUBMITTED",
+    "WAITING_SUBMIT",
+    "SUBMITTING",
+    "SUBMITTED",
+    "FILLING",
+    "FILLED_PART",
+    "PARTIAL",
+    "CANCELLING",
+    "CANCELING",
+    "TIMEOUT",
+}
+
+
+def _order_code(row: dict[str, Any]) -> str:
+    return str(row.get("code") or row.get("stock_code") or "").strip().upper()
+
+
+def _order_is_open_buy(row: dict[str, Any]) -> bool:
+    side = enum_name(row.get("trd_side") or row.get("side"))
+    if side not in {"BUY", "BUY_BACK"}:
+        return False
+    status = enum_name(row.get("order_status") or row.get("status"))
+    return status in PENDING_ORDER_STATUSES
+
+
+def pending_buy_qty(orders: list[dict[str, Any]], symbol: str) -> float:
+    """Unfilled BUY qty for a Longbridge symbol in order_list_query."""
+    code = to_futu_code(symbol).upper()
+    total = 0.0
+    for row in orders:
+        if _order_code(row) != code or not _order_is_open_buy(row):
+            continue
+        try:
+            qty = float(row.get("qty") or 0)
+            dealt = float(row.get("dealt_qty") or 0)
+        except (TypeError, ValueError):
+            continue
+        leftover = qty - dealt
+        if leftover > 0:
+            total += leftover
+    return total
+
+
+def pending_buy_notional(orders: list[dict[str, Any]], symbols: list[str]) -> float:
+    wanted: set[str] = set()
+    for symbol in symbols:
+        try:
+            wanted.add(to_futu_code(str(symbol)).upper())
+        except FutuSimError:
+            continue
+    total = 0.0
+    for row in orders:
+        if _order_code(row) not in wanted or not _order_is_open_buy(row):
+            continue
+        try:
+            qty = float(row.get("qty") or 0)
+            dealt = float(row.get("dealt_qty") or 0)
+            price = float(row.get("price") or row.get("order_price") or 0)
+        except (TypeError, ValueError):
+            continue
+        leftover = max(0.0, qty - dealt)
+        if leftover > 0 and price > 0:
+            total += leftover * price
+    return total
+
+
 def enum_name(value: Any) -> str:
     if value is None:
         return ""
@@ -80,9 +215,35 @@ def enum_name(value: Any) -> str:
     if name:
         return str(name).upper()
     text = str(value).upper()
-    for prefix in ("TRDENV.", "TRDMARKET.", "TRDSIDE.", "SIMACCTTYPE.", "TRDACCTYPE."):
+    for prefix in (
+        "TRDENV.",
+        "TRDMARKET.",
+        "TRDSIDE.",
+        "SIMACCTTYPE.",
+        "TRDACCTYPE.",
+        "ORDERTYPE.",
+    ):
         text = text.replace(prefix, "")
     return text.strip()
+
+
+def without_open_buys(orders: list[dict[str, Any]], symbol: str) -> list[dict[str, Any]]:
+    """Drop still-working BUY rows for one Longbridge symbol."""
+    code = to_futu_code(symbol).upper()
+    return [row for row in orders if not (_order_code(row) == code and _order_is_open_buy(row))]
+
+
+def _simulate_order_type() -> Any:
+    if OrderType is None:
+        return "MARKET"
+    market = getattr(OrderType, "MARKET", None)
+    if market is not None:
+        return market
+    return OrderType.NORMAL
+
+
+def _order_type_is_market(order_type: Any) -> bool:
+    return enum_name(order_type) in {"MARKET", "MO"} or str(order_type).upper() == "MARKET"
 
 
 def _auth_list(raw: Any) -> list[str]:
@@ -310,12 +471,14 @@ class FutuSimBroker:
         assert self._account is not None
 
         env = _simulate_env()
+        order_type = _simulate_order_type()
+        payload_price = 0.0 if _order_type_is_market(order_type) else float(price)
         payload: dict[str, Any] = {
-            "price": float(price),
+            "price": payload_price,
             "qty": int(qty),
             "code": code,
             "trd_side": _trd_side(side),
-            "order_type": OrderType.NORMAL if OrderType is not None else "NORMAL",
+            "order_type": order_type,
             "adjust_limit": 0.02,
             "trd_env": env,
             "acc_id": int(self._account.get("acc_id") or 0),
@@ -324,7 +487,7 @@ class FutuSimBroker:
         if TimeInForce is not None:
             payload["time_in_force"] = TimeInForce.DAY
         if Session is not None:
-            payload["session"] = Session.NONE
+            payload["session"] = getattr(Session, "RTH", None) or Session.NONE
         if not _is_simulate(payload["trd_env"]):
             raise FutuSimError("Blocked a non-SIMULATE place_order.")
 
@@ -335,6 +498,7 @@ class FutuSimBroker:
             "side": side,
             "qty": qty,
             "price": price,
+            "order_type": enum_name(order_type) or str(order_type),
             "trd_env": "SIMULATE",
             "acc_id": payload["acc_id"],
         }
@@ -347,8 +511,11 @@ class FutuSimBroker:
         result["status"] = "futu-sim-submitted"
         result["order_id"] = str(first.get("order_id") or "")
         result["order_status"] = enum_name(first.get("order_status")) or str(first.get("order_status") or "")
+        result["session"] = enum_name(payload.get("session")) or "NONE"
         result["dealt_qty"] = first.get("dealt_qty")
-        result["note"] = "Submitted to Futu 模拟盘 (TrdEnv.SIMULATE). Not a live order."
+        result["note"] = (
+            f"Submitted to Futu 模拟盘 as {result['order_type']} (TrdEnv.SIMULATE). Not a live order."
+        )
         return result
 
     def funds(self) -> dict[str, Any]:
@@ -375,6 +542,83 @@ class FutuSimBroker:
         if ret != RET_OK:
             return [{"error": str(data)}]
         return _rows_from_table(data)
+
+    def open_orders(self) -> list[dict[str, Any]]:
+        if self._ctx is None or self._account is None:
+            return []
+        ret, data = self._ctx.order_list_query(
+            trd_env=_simulate_env(),
+            acc_id=int(self._account.get("acc_id") or 0),
+            refresh_cache=True,
+        )
+        if ret != RET_OK:
+            return []
+        return _rows_from_table(data)
+
+    def cancel_open_orders(self) -> list[dict[str, Any]]:
+        """Cancel unfilled SIMULATE orders only. Never touches REAL."""
+        if self._ctx is None or self._account is None:
+            self.connect("US")
+        rows = [
+            row
+            for row in self.open_orders()
+            if enum_name(row.get("order_status") or row.get("status")) in PENDING_ORDER_STATUSES
+        ]
+        return self._cancel_pending_rows(rows)
+
+    def cancel_open_buys_for(self, symbol: str) -> list[dict[str, Any]]:
+        """Cancel still-working SIMULATE BUYs for one ticker. Never touches REAL."""
+        if self._ctx is None or self._account is None:
+            self.connect("US")
+        code = to_futu_code(symbol).upper()
+        rows = [
+            row
+            for row in self.open_orders()
+            if _order_code(row) == code and _order_is_open_buy(row)
+        ]
+        return self._cancel_pending_rows(rows)
+
+    def _cancel_pending_rows(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if self._ctx is None or self._account is None:
+            self.connect("US")
+        assert self._ctx is not None
+        assert self._account is not None
+        env = _simulate_env()
+        if not _is_simulate(env):
+            raise FutuSimError("Refusing to cancel orders on a non-SIMULATE account.")
+        acc_id = int(self._account.get("acc_id") or 0)
+        if ModifyOrderOp is None:
+            raise FutuSimError("futu-api ModifyOrderOp is missing; cannot cancel.")
+        results: list[dict[str, Any]] = []
+        for row in rows:
+            status = enum_name(row.get("order_status") or row.get("status"))
+            order_id = str(row.get("order_id") or "")
+            if not order_id:
+                continue
+            ret, data = self._ctx.modify_order(
+                ModifyOrderOp.CANCEL,
+                order_id,
+                0,
+                0,
+                trd_env=env,
+                acc_id=acc_id,
+            )
+            item: dict[str, Any] = {
+                "order_id": order_id,
+                "code": row.get("code") or row.get("stock_code"),
+                "qty": row.get("qty"),
+                "price": row.get("price"),
+                "trd_env": "SIMULATE",
+                "acc_id": acc_id,
+                "prior_status": status,
+            }
+            if ret != RET_OK:
+                item["status"] = "cancel-failed"
+                item["note"] = str(data)
+            else:
+                item["status"] = "cancelled"
+            results.append(item)
+        return results
 
     def close(self) -> None:
         ctx = self._ctx
@@ -436,10 +680,47 @@ def _public_funds(row: dict[str, Any]) -> dict[str, Any]:
     return {key: row[key] for key in keys if key in row}
 
 
+def cancel_open() -> dict[str, Any]:
+    host, port = opend_host_port()
+    report: dict[str, Any] = {
+        "host": host,
+        "port": port,
+        "opend_up": opend_up(host, port),
+        "trd_env": "SIMULATE",
+        "cancelled": [],
+    }
+    if not report["opend_up"]:
+        report["ok"] = False
+        report["error"] = f"OpenD is down at {host}:{port}."
+        return report
+    broker = FutuSimBroker(host=host, port=port)
+    try:
+        report["account"] = broker.connect()
+        if str(report["account"].get("trd_env")) != "SIMULATE":
+            raise FutuSimError("Refusing cancel: account is not SIMULATE.")
+        report["cancelled"] = broker.cancel_open_orders()
+        report["ok"] = not any(row.get("status") == "cancel-failed" for row in report["cancelled"])
+    except FutuSimError as exc:
+        report["ok"] = False
+        report["error"] = str(exc)
+    finally:
+        broker.close()
+    return report
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Probe Futu OpenD 模拟盘. Never places REAL orders.")
     parser.add_argument("--check", action="store_true", help="Connect and list the SIMULATE account.")
+    parser.add_argument(
+        "--cancel-open",
+        action="store_true",
+        help="Cancel unfilled SIMULATE orders only (等待成交). Never REAL.",
+    )
     args = parser.parse_args(argv)
+    if args.cancel_open:
+        report = cancel_open()
+        print(json.dumps(report, indent=2, ensure_ascii=False, default=str))
+        return 0 if report.get("ok") else 2
     if not args.check:
         parser.print_help()
         return 2

@@ -1,16 +1,30 @@
 {
-  "_comment": "period=1h matches an hourly automation during US hours. Overnight runs reuse the last completed US hour. execution=futu-sim sends BUY/SELL to Futu OpenD 模拟盘 on this machine. Cloud Automations cannot see OpenD on a laptop. buy_votes_needed=3 keeps hourly tests from firing trades; drop to 2 only if you want to exercise the executor.",
-  "period": "1h",
-  "count": 80,
-  "buy_votes_needed": 3,
-  "sell_votes_needed": 3,
+  "_comment": "Grouped 模拟盘 book. SMA200 exit. Qty 1 per BUY (adds on later BUY ticks). Futu 模拟盘 cash. execution=futu-sim only.",
+  "strategy": "buy_hold",
+  "period": "day",
+  "count": 300,
   "qty": 1,
+  "budget_usd": "unlimited",
   "execution": "futu-sim",
+  "news": false,
+  "sell": {
+    "below_sma": 200,
+    "drawdown_from_high": 0,
+    "high_lookback": 0,
+    "news": false
+  },
   "symbols": [
     "AAPL.US",
     "NVDA.US",
     "DRAM.US",
     "SKHY.US",
-    "VOO.US"
+    "VOO.US",
+    "ROK.US",
+    "IFNNY.US",
+    "AMD.US",
+    "MU.US",
+    "AVGO.US",
+    "QQQ.US",
+    "TSM.US"
   ]
 }

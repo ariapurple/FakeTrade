@@ -31,6 +31,8 @@ Optional env (never commit secrets):
 
 ## Unattended hourly runs
 
+Task `QuantFutuSimHourly` ticks every 30 minutes on `:00`/`:30`. `analysis.hourly` no-ops except weekday 08:00 and 09:00 ET (signals), RTH 09:30-15:30 ET (signals + 模拟盘), and 16:30 ET (after-close signal).
+
 | Where the automation runs | Can it hit 牛牛 模拟盘? |
 | --- | --- |
 | Cursor Cloud VM | Only if OpenD is logged in **on that VM** (remote desktop) and saved in the environment snapshot |

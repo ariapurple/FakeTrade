@@ -1,0 +1,175 @@
+<mxfile host="app.diagrams.net" agent="Cursor" version="22.1.0">
+  <diagram id="quant-hourly" name="Quant hourly 模拟盘">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="1180" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="title" value="How the shared Quant loop runs (Windows PC)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=18;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="16" width="720" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" value="Longbridge and the buy_hold agent are not always-on daemons. Task Scheduler wakes pythonw every 30 minutes; most wakes exit immediately. OpenD + 牛牛 stay up in the background." style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=11;fontColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="40" y="44" width="1100" height="28" as="geometry" />
+        </mxCell>
+
+        <mxCell id="g-always" value="Always running on the same PC (not started by the job)" style="rounded=0;whiteSpace=wrap;html=1;dashed=1;dashPattern=8 8;fillColor=#f5f5f5;strokeColor=#999999;verticalAlign=top;align=left;spacingLeft=10;spacingTop=6;fontStyle=2;" vertex="1" parent="1">
+          <mxGeometry x="40" y="84" width="1320" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="niu" value="富途牛牛 desktop&#xa;logged into 模拟交易&#xa;融資功能設定 = off" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="60" y="116" width="220" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="opend" value="Futu OpenD&#xa;127.0.0.1:11111" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="320" y="116" width="200" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="lb-auth" value="Longbridge CLI already logged in&#xa;(longbridge auth login)&#xa;no separate background process" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="560" y="116" width="280" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="never" value="Never TrdEnv.REAL&#xa;Never unlock_trade&#xa;Never longbridge --execute" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="1080" y="116" width="240" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="e-niu-opend" style="endArrow=block;html=1;rounded=0;" edge="1" parent="1" source="niu" target="opend">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="g-cron" value="Cron-like wake (Windows Task Scheduler, not Linux cron)" style="rounded=0;whiteSpace=wrap;html=1;dashed=1;dashPattern=8 8;fillColor=#dae8fc;strokeColor=#6c8ebf;verticalAlign=top;align=left;spacingLeft=10;spacingTop=6;fontStyle=2;" vertex="1" parent="1">
+          <mxGeometry x="40" y="214" width="1320" height="130" as="geometry" />
+        </mxCell>
+        <mxCell id="task" value="Task QuantFutuSimHourly&#xa;every 30 min on :00 and :30&#xa;hidden pythonw.exe" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#6c8ebf;fontColor=#ffffff;strokeColor=#1d4e89;" vertex="1" parent="1">
+          <mxGeometry x="60" y="246" width="260" height="76" as="geometry" />
+        </mxCell>
+        <mxCell id="hourly" value="pythonw -m analysis.hourly&#xa;working directory = this repo" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="400" y="246" width="280" height="76" as="geometry" />
+        </mxCell>
+        <mxCell id="windows" value="When the job is allowed to work (US Eastern, weekdays)&#xa;Signals: 08:00, 09:00, 09:30–15:30 every 30 min, 16:30&#xa;模拟盘 fills: 09:30–15:30 only (RTH). Other wakes: exit 0, no API calls." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;align=left;spacingLeft=8;" vertex="1" parent="1">
+          <mxGeometry x="720" y="246" width="600" height="76" as="geometry" />
+        </mxCell>
+        <mxCell id="e-task-hourly" style="endArrow=block;html=1;rounded=0;" edge="1" parent="1" source="task" target="hourly">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="gate1" value="should_refresh_signals?&#xa;weekday ET window" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="430" y="370" width="220" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="e-hourly-g1" style="endArrow=block;html=1;rounded=0;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="hourly" target="gate1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="noop" value="No — exit 0&#xa;Longbridge is not called&#xa;no agent, no orders" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="760" y="390" width="220" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="e-g1-no" value="no" style="endArrow=block;html=1;rounded=0;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="gate1" target="noop">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="g-loop" value="Signal run (only if the gate said yes) — this is the “Longbridge + agent” part" style="rounded=0;whiteSpace=wrap;html=1;dashed=1;dashPattern=8 8;fillColor=#e1d5e7;strokeColor=#9673a6;verticalAlign=top;align=left;spacingLeft=10;spacingTop=6;fontStyle=2;" vertex="1" parent="1">
+          <mxGeometry x="40" y="500" width="1320" height="200" as="geometry" />
+        </mxCell>
+        <mxCell id="loop" value="analysis.loop" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="60" y="540" width="140" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="books" value="config/books.json&#xa;book id = hold" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="230" y="532" width="160" height="66" as="geometry" />
+        </mxCell>
+        <mxCell id="watch" value="config/watchlist.json&#xa;symbols, SMA200, qty 1&#xa;execution = futu-sim" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="420" y="532" width="200" height="66" as="geometry" />
+        </mxCell>
+        <mxCell id="lb" value="Longbridge CLI (on demand)&#xa;kline history + live quote&#xa;not a 24/7 agent process" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1">
+          <mxGeometry x="650" y="532" width="240" height="66" as="geometry" />
+        </mxCell>
+        <mxCell id="agent" value="buy_hold agent&#xa;BUY until live price &lt; SMA200&#xa;then SELL whole long" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1">
+          <mxGeometry x="920" y="532" width="220" height="66" as="geometry" />
+        </mxCell>
+        <mxCell id="sig-hold" value="trading_signal_hold.json&#xa;BUY / SELL / HOLD per ticker" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="230" y="620" width="240" height="56" as="geometry" />
+        </mxCell>
+        <mxCell id="sig-idx" value="trading_signal.json&#xa;index only — do not execute" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="500" y="620" width="240" height="56" as="geometry" />
+        </mxCell>
+        <mxCell id="e-g1-yes" value="yes" style="endArrow=block;html=1;rounded=0;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="gate1" target="loop">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="540" y="500" />
+              <mxPoint x="130" y="500" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-loop-books" style="endArrow=block;html=1;rounded=0;" edge="1" parent="1" source="loop" target="books">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-books-watch" style="endArrow=block;html=1;rounded=0;" edge="1" parent="1" source="books" target="watch">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-watch-lb" style="endArrow=block;html=1;rounded=0;" edge="1" parent="1" source="watch" target="lb">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-lb-agent" style="endArrow=block;html=1;rounded=0;" edge="1" parent="1" source="lb" target="agent">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-loop-hold" style="endArrow=block;html=1;rounded=0;exitX=0.5;exitY=1;entryX=0;entryY=0.5;" edge="1" parent="1" source="loop" target="sig-hold">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-hold-idx" style="endArrow=block;html=1;rounded=0;" edge="1" parent="1" source="sig-hold" target="sig-idx">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="gate2" value="should_place_sim?&#xa;RTH 09:30–16:00 ET" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="430" y="730" width="220" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="e-hold-g2" style="endArrow=block;html=1;rounded=0;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="sig-hold" target="gate2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="signals-only" value="No — keep the JSON&#xa;no 模拟盘 order this tick&#xa;(08:00 / 09:00 / 16:30 ET)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="760" y="745" width="240" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="e-g2-no" value="no" style="endArrow=block;html=1;rounded=0;" edge="1" parent="1" source="gate2" target="signals-only">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="g-exec" value="模拟盘 fill (RTH ticks only)" style="rounded=0;whiteSpace=wrap;html=1;dashed=1;dashPattern=8 8;fillColor=#d5e8d4;strokeColor=#82b366;verticalAlign=top;align=left;spacingLeft=10;spacingTop=6;fontStyle=2;" vertex="1" parent="1">
+          <mxGeometry x="40" y="860" width="1320" height="160" as="geometry" />
+        </mxCell>
+        <mxCell id="exec" value="analysis.executor&#xa;--signal trading_signal_hold.json" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="60" y="900" width="260" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="rules" value="BUY = 1 share MARKET (can add)&#xa;SELL = exit whole long&#xa;stale pending BUY is cancelled first" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="360" y="892" width="280" height="76" as="geometry" />
+        </mxCell>
+        <mxCell id="sim" value="OpenD place_order&#xa;TrdEnv.SIMULATE only" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="680" y="900" width="220" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="log" value="analysis/output/&#xa;execution_log_hold.json" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="940" y="900" width="200" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="e-g2-yes" value="yes" style="endArrow=block;html=1;rounded=0;exitX=0;exitY=0.5;entryX=0.5;entryY=0;" edge="1" parent="1" source="gate2" target="exec">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="190" y="780" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-exec-rules" style="endArrow=block;html=1;rounded=0;" edge="1" parent="1" source="exec" target="rules">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-rules-sim" style="endArrow=block;html=1;rounded=0;" edge="1" parent="1" source="rules" target="sim">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-sim-opend" style="endArrow=block;html=1;rounded=0;dashed=1;exitX=0.5;exitY=0;entryX=0.5;entryY=1;" edge="1" parent="1" source="sim" target="opend">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="790" y="1040" />
+              <mxPoint x="1340" y="1040" />
+              <mxPoint x="1340" y="176" />
+              <mxPoint x="420" y="176" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-exec-log" style="endArrow=block;html=1;rounded=0;" edge="1" parent="1" source="sim" target="log">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="foot" value="Open this file in diagrams.net (draw.io) or the VS Code Draw.io extension. Watchlist how-to: config/README.md. PC setup: scripts/WINDOWS.md." style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=11;fontColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="40" y="1040" width="900" height="24" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

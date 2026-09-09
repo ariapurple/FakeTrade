@@ -30,5 +30,13 @@ if [ -z "${PY}" ]; then
 fi
 
 echo "python ${PY}"
+if ! "${PY}" -c "from analysis.session import in_us_trade_window; raise SystemExit(0 if in_us_trade_window() else 1)"; then
+  echo "outside Futu US sessions (closed Sat 04:00-Sun 20:00 ET); skip"
+  exit 0
+fi
 "${PY}" -m analysis.loop
-"${PY}" -m analysis.executor
+if ! "${PY}" -c "from analysis.session import in_us_rth; raise SystemExit(0 if in_us_rth() else 1)"; then
+  echo "outside US regular hours (09:30-16:00 ET); signals only, no 模拟盘"
+  exit 0
+fi
+"${PY}" -c "from analysis.hourly import run_book_executors; raise SystemExit(run_book_executors())"

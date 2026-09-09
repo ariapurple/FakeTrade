@@ -1,0 +1,6 @@
+{
+  "_comment": "Hourly job runs this grouped book. SMA200 exit. Always 1 share.",
+  "books": [
+    {"id": "hold", "file": "config/watchlist.json"}
+  ]
+}
